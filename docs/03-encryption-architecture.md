@@ -245,8 +245,8 @@ needed.
 ### 4.2 Unlock (passphrase)
 
 1. Parse and structurally validate. Reject `formatVersion` outside the supported range.
-2. **Enforce the KDF floor.** If the file's parameters are below the floor, refuse to
-   use them (downgrade defence) and mark the vault for re-keying.
+2. **Apply the KDF policy.** See §4.6 — the default opens a legacy vault and flags it;
+   `Strict` refuses it outright.
 3. Locate the slot for the supplied secret type.
 4. `MUK = Argon2id(secret, slot.kdf)` → `KEK = HKDF(MUK, …)`.
 5. **Constant-time commitment check.** Mismatch ⇒ `WrongSecret`, stop. No timing
@@ -273,10 +273,38 @@ new slot.
 
 ### 4.5 Parameter upgrade
 
-If a vault's stored parameters are below the current floor at unlock time, the slot is
-transparently re-derived at current parameters after a successful unlock. Legacy weak
-KDF settings — the mechanism behind the worst of the LastPass 2022 outcomes — cannot
-persist silently.
+If the slot used for an unlock is below the current floor, it is re-derived at current
+parameters immediately after that unlock. Legacy weak KDF settings — the mechanism
+behind the worst of the LastPass 2022 outcomes — cannot persist silently.
+
+The upgrade is scoped to **the slot that was actually used**, and this is deliberate:
+that is the only slot whose secret the user has just demonstrably supplied, so it is the
+only one that can be re-wrapped. Upgrading the passphrase cannot touch the recovery
+slot, whose key nobody has in hand. Remaining weak slots are therefore *reported*
+(`UnsealedVault.weakSlotTypes`) rather than silently "fixed", and the recovery slot is
+re-keyed when the user rotates their recovery key.
+
+### 4.6 KDF policy
+
+Worth being precise about what the floor defends against, because the intuitive answer
+is wrong.
+
+The header is bound as AEAD AAD, so **a third party cannot lower the Argon2 cost of an
+existing vault** — any edit breaks the tag, and the attempt is verified by
+`HeaderAadTest`. Below-floor parameters therefore mean the vault is genuinely old, not
+that it is under attack.
+
+That changes the correct default. Refusing to open a legacy vault would destroy data to
+defend against an attack the format already prevents, and principle 1 outranks
+principle 2. So:
+
+| Policy | Behaviour | Used by |
+|---|---|---|
+| `UpgradeAfterUnlock` *(default)* | Open, set `kdfUpgradeRequired`, re-key on next save | The app |
+| `Strict` | Refuse below-floor parameters outright | Tests, explicit audits |
+
+The genuine downgrade defence is the AAD binding, not the floor. The floor is what stops
+weak parameters *persisting*.
 
 ---
 
