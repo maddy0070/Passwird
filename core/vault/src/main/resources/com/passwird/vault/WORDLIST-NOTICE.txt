@@ -1,0 +1,20 @@
+wordlist-eff-large.txt
+======================
+
+Source:  EFF's Long Wordlist for random passphrases
+         https://www.eff.org/dice
+         https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt
+
+Author:  Joseph Bonneau, Electronic Frontier Foundation (2016)
+Licence: Creative Commons Attribution 3.0 United States (CC BY 3.0 US)
+         https://creativecommons.org/licenses/by/3.0/us/
+
+Modification: the original file is tab-separated "<dice roll>\t<word>". This copy
+contains only the word column, one word per line, in the original order. No words
+were added, removed or altered, so the list remains exactly 7776 entries and each
+word therefore contributes log2(7776) = 12.9248 bits of entropy.
+
+Why this list: it was designed specifically for human-memorable random passphrases —
+words are 3-9 characters, unambiguous when read aloud, free of profanity and of
+easily-confused near-duplicates, and prefix-distinct enough to be typed reliably.
+Those properties are what make a passphrase people will actually keep.
