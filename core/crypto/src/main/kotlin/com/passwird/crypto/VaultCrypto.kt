@@ -191,6 +191,35 @@ object VaultCrypto {
         )
     }
 
+    /**
+     * Decrypts using a VEK already in hand, with no key slot and no KDF.
+     *
+     * This is the sync path. Once the vault is unlocked we hold the VEK, and a file that
+     * arrives from the store must be readable without asking the user for their passphrase
+     * again — both because re-prompting on every background sync would be intolerable, and
+     * because it would put the passphrase on screen far more often than necessary.
+     *
+     * The key slots are irrelevant here: the payload is encrypted under a key derived from
+     * the VEK and this file's own salt, so any file belonging to this vault opens with it.
+     */
+    fun unsealWithVek(bytes: ByteArray, vek: SecretBytes): ByteArray {
+        val parsed = VaultContainer.parse(bytes)
+        return Hkdf.derive(vek, KeyDomains.CONTENT, salt = parsed.header.fileSalt).use { contentKey ->
+            val padded = Aead.open(
+                key = contentKey,
+                nonce = parsed.header.nonce,
+                ciphertext = parsed.payload,
+                aad = parsed.aad,
+                context = "vault payload",
+            )
+            try {
+                Padding.unpad(padded)
+            } finally {
+                padded.fill(0)
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ seal
 
     class Sealed internal constructor(

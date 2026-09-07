@@ -127,6 +127,17 @@ object VaultContainer {
      */
     fun peekHeader(bytes: ByteArray): VaultHeader = parse(bytes).header
 
+    /**
+     * Decodes a bare header, without the surrounding container.
+     *
+     * The sync layer retains the last accepted header bytes to chain the next version onto
+     * and to detect a fork, so it needs to read one back without holding the whole file.
+     */
+    fun decodeHeaderBytes(headerBytes: ByteArray): VaultHeader = VaultHeaderCodec.decode(headerBytes)
+
+    /** Convenience for the common case of only wanting the version counter. */
+    fun peekHeaderVersion(headerBytes: ByteArray): Long = decodeHeaderBytes(headerBytes).vaultVersion
+
     internal fun encodeHeader(header: VaultHeader): ByteArray = VaultHeaderCodec.encode(header)
 
     /**

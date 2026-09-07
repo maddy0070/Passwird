@@ -77,7 +77,15 @@ object VaultDocumentCodec {
         return Js.withUnknown(fields, document.unknown)
     }
 
-    private fun encodeItem(item: VaultItem): JsonObject {
+    /**
+     * Public so the sync engine can merge at field level.
+     *
+     * Merging the JSON projection rather than the typed union means one merge
+     * implementation covers all eleven item types, including any added later, and it
+     * reuses a codec that is already covered by round-trip tests. A per-type merge would
+     * be eleven chances to get a data-losing case wrong.
+     */
+    fun encodeItem(item: VaultItem): JsonObject {
         val fields = mutableMapOf<String, JsonElement>(
             "id" to JsonPrimitive(item.id.toString()),
             "title" to JsonPrimitive(item.title),
@@ -322,7 +330,8 @@ object VaultDocumentCodec {
         )
     }
 
-    private fun decodeItem(obj: JsonObject): VaultItem {
+    /** Inverse of [encodeItem]; see its note on why this is public. */
+    fun decodeItem(obj: JsonObject): VaultItem {
         val typeWire = Js.string(obj, "type")
         val type = ItemType.fromWire(typeWire)
             ?: throw VaultCodecException("Unknown item type '$typeWire'")
