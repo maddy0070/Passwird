@@ -29,6 +29,7 @@ import com.passwird.design.components.SearchField
 import com.passwird.design.components.SecurityBadge
 import com.passwird.design.components.BadgeTone
 import com.passwird.design.components.Section
+import com.passwird.design.components.SecondaryButton
 import com.passwird.design.components.SyncIndicator
 import com.passwird.design.components.SyncStatus
 import com.passwird.design.tokens.PasswirdTheme
@@ -73,6 +74,14 @@ fun HomeScreen(
     onAdd: () -> Unit,
     onSyncTap: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Locks the vault immediately. Always reachable — a user who wants to lock cannot wait. */
+    onLock: () -> Unit = {},
+    /**
+     * Offered only when the device has Class 3 biometric hardware and this vault is not yet
+     * enrolled. Null hides the control entirely rather than showing a disabled one: an
+     * affordance that cannot work is worse than no affordance in a security product.
+     */
+    onEnrolBiometrics: (() -> Unit)? = null,
 ) {
     val colors = PasswirdTheme.colors
     val spacing = PasswirdTheme.spacing
@@ -95,6 +104,28 @@ fun HomeScreen(
                         onQueryChange = onQueryChange,
                         modifier = Modifier.weight(1f),
                     )
+                    // Always visible, never behind a menu. A user who has decided to lock
+                    // their vault is usually reacting to something, and making them hunt for
+                    // it is the one delay this control must never impose.
+                    PasswirdIconButton(
+                        icon = PasswirdIcons.Locked,
+                        contentDescription = "Lock vault now",
+                        onClick = onLock,
+                    )
+                }
+                if (onEnrolBiometrics != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = spacing.gutter)
+                            .padding(bottom = spacing.s),
+                    ) {
+                        SecondaryButton(
+                            text = "Turn on fingerprint unlock",
+                            onClick = onEnrolBiometrics,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
                 Row(
                     modifier = Modifier

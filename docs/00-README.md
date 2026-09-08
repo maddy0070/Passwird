@@ -51,7 +51,7 @@ the device. Google Drive holds a sealed copy and is treated as **hostile by defa
     honest account of that gap.
 17. [`15-autofill-design.md`](15-autofill-design.md) — the security and privacy design that
     must be accepted before any Autofill code is written. Deferred deliberately.
-18. [`16-android-verification-gate.md`](16-android-verification-gate.md) — the first real
+18. [`17-android-verification-gate.md`](17-android-verification-gate.md) — the first real
     Android build: what compiled, the seven defects it found, the APK it produced, and what
     still cannot be verified without a device.
 

@@ -64,6 +64,22 @@ class UnlockController(
         return result
     }
 
+    /**
+     * Opens the vault with a device key the secure hardware has just released.
+     *
+     * Separate from [unlockWithSecret] because there is no KDF and no slot type to choose:
+     * the biometric path goes straight to the device slot, and that is what makes it instant.
+     */
+    suspend fun unlockWithSecretKey(
+        repository: VaultRepository,
+        deviceKey: com.passwird.crypto.SecretBytes,
+    ): UnlockResult {
+        _state.value = UnlockUiState.Authenticating
+        val result = deviceKey.use { repository.unlockWithDeviceKey(it) }
+        applyResult(result)
+        return result
+    }
+
     fun reportBiometricInvalidated() {
         _state.value = UnlockUiState.BiometricInvalidated
     }

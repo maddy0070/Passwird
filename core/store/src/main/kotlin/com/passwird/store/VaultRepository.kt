@@ -1,6 +1,7 @@
 package com.passwird.store
 
 import com.passwird.crypto.CryptoError
+import com.passwird.crypto.DeviceSlotCodec
 import com.passwird.crypto.KdfParams
 import com.passwird.crypto.KdfPolicy
 import com.passwird.crypto.SecretBytes
@@ -253,6 +254,79 @@ class VaultRepository(
             .getOrElse { VaultStateResolver.remoteFailure(it) }
 
     /**
+     * Enrols this device for biometric unlock.
+     *
+     * Requires an unlocked vault, because it needs the VEK to build the slot. That constraint
+     * is the security property: biometrics can only ever be added by someone who has already
+     * proven the passphrase.
+     *
+     * @param wrapDeviceKey hands the freshly generated device key to the platform, which
+     *   wraps it under a biometric-gated Keystore key and returns the blob to store. Injected
+     *   so the whole flow is testable without Android; the real implementation is
+     *   `BiometricUnlock.enrol`.
+     */
+    suspend fun enrolDeviceSlot(
+        label: String,
+        wrapDeviceKey: (SecretBytes) -> ByteArray,
+    ): EnrolResult = mutex.withLock {
+        val sessionKey = vek ?: return EnrolResult.VaultLocked
+
+        return try {
+            val deviceKey = VaultCrypto.generateDeviceKey()
+            val slot = deviceKey.use { key ->
+                val slot = VaultCrypto.createDeviceSlot(
+                    vek = sessionKey,
+                    deviceKey = key,
+                    label = label,
+                    nowEpochMillis = clock().toEpochMilli(),
+                )
+                val wrapped = wrapDeviceKey(key)
+                storage.writeDeviceSlot(encodeEnrolment(slot, wrapped))
+                slot
+            }
+            EnrolResult.Enrolled(slot.label)
+        } catch (error: Throwable) {
+            EnrolResult.Failed(error.message ?: "biometric enrolment failed")
+        }
+    }
+
+    /** True when this device has a stored biometric enrolment. */
+    suspend fun hasDeviceSlot(): Boolean = storage.readDeviceSlot() != null
+
+    /** The Keystore-wrapped device key, for the platform to unwrap behind a biometric prompt. */
+    suspend fun wrappedDeviceKey(): ByteArray? =
+        storage.readDeviceSlot()?.let { decodeWrapped(it) }
+
+    /** Forgets the biometric enrolment. The vault and its other slots are untouched. */
+    suspend fun clearDeviceSlot() = storage.writeDeviceSlot(null)
+
+    /**
+     * Opens the vault with a device key the platform has just unwrapped after a biometric.
+     *
+     * There is no KDF here and that is the entire point — this is what makes daily unlock
+     * instant. The security comes from the hardware having observed a biometric before it
+     * would release the key, not from work done in this method.
+     */
+    suspend fun unlockWithDeviceKey(deviceKey: SecretBytes): UnlockResult = mutex.withLock {
+        val bytes = storage.readVault() ?: return UnlockResult.NoVault
+        val stored = storage.readDeviceSlot() ?: return UnlockResult.NoVault
+
+        return try {
+            val slot = DeviceSlotCodec.decode(decodeSlotBytes(stored))
+            VaultCrypto.unsealWithDeviceSlot(bytes, slot, deviceKey).use { opened ->
+                val document = VaultDocumentCodec.decodeFromBytes(opened.plaintext)
+                val sessionKey = SecretBytes.copyOf(opened.vek.copyBytes())
+                install(sessionKey, opened.header.vaultId, opened.header.slots, document)
+                UnlockResult.Success(kdfUpgradeRequired = false, weakSlots = emptySet())
+            }
+        } catch (error: CryptoError.WrongSecret) {
+            UnlockResult.WrongSecret
+        } catch (error: CryptoError) {
+            UnlockResult.Damaged(error)
+        }
+    }
+
+    /**
      * Which [VaultState] the application is in.
      *
      * The single question the first screen must ask. It replaces `vault == null`, which meant
@@ -340,6 +414,46 @@ class VaultRepository(
     }
 }
 
+/**
+ * Framing for the stored enrolment: the device slot and the Keystore-wrapped device key.
+ *
+ * Length-prefixed rather than concatenated, for the same reason the vault container is: a
+ * parser that infers a boundary is a parser that can be lied to.
+ */
+private fun encodeEnrolment(slot: com.passwird.crypto.KeySlot, wrapped: ByteArray): ByteArray {
+    val slotBytes = DeviceSlotCodec.encode(slot)
+    val out = java.io.ByteArrayOutputStream()
+    out.write(slotBytes.size ushr 24); out.write(slotBytes.size ushr 16)
+    out.write(slotBytes.size ushr 8); out.write(slotBytes.size)
+    out.write(slotBytes)
+    out.write(wrapped)
+    return out.toByteArray()
+}
+
+private fun slotLength(blob: ByteArray): Int {
+    require(blob.size >= 4) { "enrolment blob is truncated" }
+    val length = ((blob[0].toInt() and 0xFF) shl 24) or ((blob[1].toInt() and 0xFF) shl 16) or
+        ((blob[2].toInt() and 0xFF) shl 8) or (blob[3].toInt() and 0xFF)
+    require(length in 1..(blob.size - 4)) { "enrolment blob declares an impossible slot length" }
+    return length
+}
+
+private fun decodeSlotBytes(blob: ByteArray): ByteArray =
+    blob.copyOfRange(4, 4 + slotLength(blob))
+
+private fun decodeWrapped(blob: ByteArray): ByteArray =
+    blob.copyOfRange(4 + slotLength(blob), blob.size)
+
+/** The outcome of enrolling this device for biometric unlock. */
+sealed interface EnrolResult {
+    data class Enrolled(val label: String) : EnrolResult
+
+    /** Biometrics can only be added by someone who has already opened the vault. */
+    data object VaultLocked : EnrolResult
+
+    data class Failed(val detail: String) : EnrolResult
+}
+
 /** The outcome of creating a vault. */
 sealed interface CreateResult {
     data object Created : CreateResult
@@ -401,6 +515,18 @@ interface VaultStorage {
      * never be offered vault creation.
      */
     suspend fun hasEvidenceOfVault(): Boolean
+
+    /**
+     * The locally-held device slot and its Keystore-wrapped key, or null when biometrics are
+     * not enrolled.
+     *
+     * Never uploaded, never part of the vault file: `VaultHeader` refuses to serialise a
+     * device slot at all, so this is the only place one can live.
+     */
+    suspend fun readDeviceSlot(): ByteArray?
+
+    /** Passing null clears the enrolment — used when biometrics are turned off or invalidated. */
+    suspend fun writeDeviceSlot(bytes: ByteArray?)
 
     fun transport(): VaultTransport
     fun syncStateStore(): SyncStateStore

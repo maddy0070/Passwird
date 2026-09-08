@@ -72,6 +72,10 @@ class MainActivity : FragmentActivity() {
                 PasswirdApp(
                     container = container,
                     unlockController = unlockController,
+                    // BiometricPrompt needs a FragmentActivity host, which is why this
+                    // activity is one. Passed explicitly rather than pulled from
+                    // LocalContext, so the requirement is visible in the signature.
+                    activity = this@MainActivity,
                     onUserInteraction = lockController::onUserInteraction,
                 )
             }
@@ -112,6 +116,7 @@ class MainActivity : FragmentActivity() {
 fun PasswirdApp(
     container: PasswirdContainer,
     unlockController: UnlockController,
+    activity: FragmentActivity,
     onUserInteraction: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -122,6 +127,12 @@ fun PasswirdApp(
     val unlockState by unlockController.state.collectAsState()
 
     val onboarding = remember(container) { OnboardingController(container.repository) }
+    val biometrics = remember(container) { BiometricController(container) }
+
+    // Recomputed alongside the vault state: enrolling changes both, and so does a Keystore
+    // invalidation caused by a new fingerprint being added to the phone.
+    var biometricOffer by remember { mutableStateOf(false) }
+    var biometricUnlockOffer by remember { mutableStateOf(false) }
     val step by onboarding.step.collectAsState()
 
     // The vault's lifecycle state, resolved from storage and the remote rather than inferred
@@ -131,6 +142,19 @@ fun PasswirdApp(
     // Recomputed whenever the vault reference changes, which covers creation, unlock and lock.
     var vaultState by remember { mutableStateOf<VaultState?>(null) }
     LaunchedEffect(vault) {
+        vaultState = container.repository.currentState()
+        biometricOffer = biometrics.canEnrol(activity)
+        biometricUnlockOffer = biometrics.canUnlock(activity)
+    }
+
+    suspend fun onEnrol() {
+        biometrics.enrol(activity)
+        biometricOffer = biometrics.canEnrol(activity)
+        biometricUnlockOffer = biometrics.canUnlock(activity)
+    }
+
+    suspend fun onBiometricUnlock() {
+        biometrics.unlock(activity, unlockController)
         vaultState = container.repository.currentState()
     }
 
@@ -157,15 +181,28 @@ fun PasswirdApp(
             // a lock screen "meanwhile" is exactly the bug being fixed.
             null -> Unit
 
-            is VaultState.Unlocked -> UnlockedRoot(container = container)
+            is VaultState.Unlocked -> UnlockedRoot(
+                container = container,
+                onLock = {
+                    scope.launch {
+                        container.repository.lock()
+                        vaultState = container.repository.currentState()
+                    }
+                },
+                // Offered only when the hardware can actually do it and this vault is not
+                // already enrolled. Null hides the control: an affordance that cannot work is
+                // worse than none in a security product.
+                onEnrolBiometrics = if (biometricOffer) {
+                    { scope.launch { onEnrol() } }
+                } else {
+                    null
+                },
+            )
 
             is VaultState.Locked -> UnlockScreen(
                 state = unlockState,
-                // Biometric enrolment is a later step; the passphrase path is the one that
-                // must work first, and claiming a biometric option that does nothing would
-                // be exactly the fake affordance this product avoids.
-                biometricAvailable = false,
-                onBiometricUnlock = {},
+                biometricAvailable = biometricUnlockOffer,
+                onBiometricUnlock = { scope.launch { onBiometricUnlock() } },
                 onPassphraseUnlock = { passphrase ->
                     scope.launch {
                         unlockController.unlockWithPassphrase(passphrase)

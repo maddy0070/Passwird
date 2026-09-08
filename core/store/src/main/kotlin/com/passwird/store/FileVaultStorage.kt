@@ -83,6 +83,7 @@ class FileVaultStorage(
     private val stateFile = File(root, STATE_FILE)
     private val baseFile = File(root, BASE_FILE)
     private val snapshotFile = File(root, SNAPSHOT_FILE)
+    private val deviceSlotFile = File(root, DEVICE_SLOT_FILE)
 
     init {
         if (!root.exists() && !root.mkdirs()) {
@@ -106,6 +107,28 @@ class FileVaultStorage(
         headerFile.takeIf { it.isFile }?.readBytes()
     }
 
+    /**
+     * The device slot, sealed under the Keystore device key.
+     *
+     * Sealed rather than stored plainly — unlike `vault.pwv`, where that choice would be
+     * dangerous. The asymmetry is deliberate: losing the Keystore key makes the *biometric*
+     * key unusable anyway, so a device slot that becomes unreadable at the same moment costs
+     * nothing. The vault itself must survive that event, which is why it is not sealed.
+     */
+    override suspend fun readDeviceSlot(): ByteArray? = withContext(io) {
+        if (!deviceSlotFile.isFile) return@withContext null
+        runCatching { cipher.open(deviceSlotFile.readBytes()) }.getOrNull()
+    }
+
+    override suspend fun writeDeviceSlot(bytes: ByteArray?) = withContext(io) {
+        if (bytes == null) {
+            deviceSlotFile.delete()
+            Unit
+        } else {
+            writeAtomically(deviceSlotFile, cipher.seal(bytes))
+        }
+    }
+
     override fun transport(): VaultTransport = transport
 
     override fun syncStateStore(): SyncStateStore = FileSyncStateStore()
@@ -124,7 +147,7 @@ class FileVaultStorage(
      */
     override suspend fun hasEvidenceOfVault(): Boolean = withContext(io) {
         vaultFile.isFile || headerFile.isFile || stateFile.isFile || baseFile.isFile ||
-            snapshotFile.isFile ||
+            snapshotFile.isFile || deviceSlotFile.isFile ||
             root.listFiles { file -> file.name.startsWith(TEMP_PREFIX) }?.isNotEmpty() == true
     }
 
@@ -136,7 +159,8 @@ class FileVaultStorage(
      * the user does not understand.
      */
     suspend fun destroy() = withContext(io) {
-        listOf(vaultFile, headerFile, stateFile, baseFile, snapshotFile).forEach { it.delete() }
+        listOf(vaultFile, headerFile, stateFile, baseFile, snapshotFile, deviceSlotFile)
+            .forEach { it.delete() }
         root.listFiles { file -> file.name.startsWith(TEMP_PREFIX) }?.forEach { it.delete() }
         Unit
     }
@@ -248,6 +272,7 @@ class FileVaultStorage(
         const val STATE_FILE = "sync-state.bin"
         const val BASE_FILE = "base.bin"
         const val SNAPSHOT_FILE = "snapshot.bin"
+        const val DEVICE_SLOT_FILE = "device-slot.bin"
         const val TEMP_PREFIX = ".tmp-"
 
         /** magic(8) + formatVersion(2) + headerLen(4) — see `03-encryption-architecture.md` §3. */

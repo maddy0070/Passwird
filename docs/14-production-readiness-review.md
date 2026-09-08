@@ -17,7 +17,7 @@ One sentence governs everything below:
 > looks like it works. Nothing has been *installed or launched* — there is no device and no
 > KVM — so every on-device claim below still stands. The full record, with evidence and the
 > updated per-subsystem statuses, is in
-> [`16-android-verification-gate.md`](16-android-verification-gate.md). The original text is
+> [`17-android-verification-gate.md`](17-android-verification-gate.md). The original text is
 > left intact below rather than edited, because the argument it makes is exactly what the
 > build then demonstrated.
 

@@ -101,7 +101,46 @@ data class VaultHeader(
  * turning into a spurious integrity failure, and it is why unknown-field preservation is
  * safe.
  */
+/**
+ * Persists a **single** key slot, for the one slot that never goes in a vault file.
+ *
+ * Device slots are local-only by design (`04-key-management.md` §3.1) — a Keystore-wrapped
+ * blob is meaningless elsewhere, and syncing one would leak how many devices the user owns.
+ * They therefore need somewhere to live that is not the header, and this is the codec for it.
+ *
+ * Reuses the header's own slot encoding rather than inventing a second one, so a device slot
+ * and a passphrase slot are byte-identical in shape and there is only one parser to get right.
+ */
+object DeviceSlotCodec {
+    fun encode(slot: KeySlot): ByteArray {
+        require(slot.type == SlotType.DEVICE) { "only device slots are stored locally" }
+        return VaultHeaderCodec.encodeSingleSlot(slot)
+    }
+
+    /** @throws CryptoError.MalformedVault if the blob is not a device slot. */
+    fun decode(bytes: ByteArray): KeySlot {
+        val slot = VaultHeaderCodec.decodeSingleSlot(bytes)
+        if (slot.type != SlotType.DEVICE) {
+            throw CryptoError.MalformedVault("stored slot is not a device slot")
+        }
+        return slot
+    }
+}
+
 internal object VaultHeaderCodec {
+
+    fun encodeSingleSlot(slot: KeySlot): ByteArray =
+        json.encodeToString(JsonObject.serializer(), encodeSlot(slot)).toByteArray(Charsets.UTF_8)
+
+    fun decodeSingleSlot(bytes: ByteArray): KeySlot {
+        val element = try {
+            json.parseToJsonElement(bytes.toString(Charsets.UTF_8))
+        } catch (_: Exception) {
+            throw CryptoError.MalformedVault("stored slot is not valid JSON")
+        }
+        return decodeSlot(element)
+    }
+
 
     private val json = Json {
         ignoreUnknownKeys = true

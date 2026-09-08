@@ -406,3 +406,143 @@ class VaultRepositoryStateTest {
         assertNotNull(afterSignOut.vault.value, "the vault could not be opened without Google")
     }
 }
+
+/**
+ * The biometric unlock path, exercised without a device.
+ *
+ * The Keystore is the only part that cannot run here, so it is the only part faked: the
+ * "wrap" is an in-memory AEAD rather than a hardware-gated key. Everything else — the device
+ * slot, the VEK it wraps, the container it opens — is real.
+ *
+ * What this cannot prove is the part that matters most on a device: that the hardware refuses
+ * to release the key until it has observed a biometric. That is `CryptoObject` behaviour and
+ * it is Android-runtime-unverified by definition.
+ */
+class DeviceSlotEnrolmentTest {
+
+    private val root: File = Files.createTempDirectory("passwird-enrol").toFile()
+    private val cipher = FakeDeviceCipher()
+    private val transport = FakeTransport()
+    private val storage = FileVaultStorage(root, cipher, transport)
+
+    /** Stands in for `BiometricUnlock.enrol`: wraps the device key, hands back a blob. */
+    private val keystore = FakeDeviceCipher()
+
+    @AfterTest
+    fun cleanUp() {
+        root.deleteRecursively()
+    }
+
+    private fun repository() = VaultRepository(storage, Fixtures.DEVICE, clock = { Fixtures.NOW })
+
+    private suspend fun createdVault(): Pair<VaultRepository, String> {
+        val value = "a fresh master passphrase"
+        val repo = repository()
+        val result = Fixtures.passphrase(value).use { pass ->
+            repo.createVault(pass, VaultCrypto.generateRecoveryKey(), kdf = Fixtures.fastKdf())
+        }
+        assertIs<CreateResult.Created>(result)
+        return repo to value
+    }
+
+    @Test
+    fun `enrolling requires an unlocked vault`() = runTest {
+        // The security property: biometrics can only be added by someone who has already
+        // proven the passphrase. A locked vault has no VEK to build a slot from.
+        val result = repository().enrolDeviceSlot("Test device") { keystore.seal(it.copyBytes()) }
+        assertIs<EnrolResult.VaultLocked>(result)
+        assertFalse(storage.readDeviceSlot() != null, "a locked vault produced an enrolment")
+    }
+
+    @Test
+    fun `an enrolled device unlocks with the device key alone`() = runTest {
+        val (repo, _) = createdVault()
+
+        val enrolled = repo.enrolDeviceSlot("Pixel") { keystore.seal(it.copyBytes()) }
+        assertIs<EnrolResult.Enrolled>(enrolled)
+        assertTrue(repo.hasDeviceSlot())
+
+        repo.lock()
+
+        // What the platform does after a successful biometric: unwrap, then hand the key over.
+        val wrapped = assertNotNull(repo.wrappedDeviceKey())
+        val deviceKey = com.passwird.crypto.SecretBytes.adopt(keystore.open(wrapped))
+
+        val fresh = repository()
+        val result = fresh.unlockWithDeviceKey(deviceKey)
+
+        assertIs<UnlockResult.Success>(result)
+        assertIs<VaultState.Unlocked>(fresh.currentState())
+    }
+
+    @Test
+    fun `a wrong device key is refused`() = runTest {
+        val (repo, _) = createdVault()
+        repo.enrolDeviceSlot("Pixel") { keystore.seal(it.copyBytes()) }
+        repo.lock()
+
+        val wrong = com.passwird.crypto.SecretBytes.random(32)
+        val result = repository().unlockWithDeviceKey(wrong)
+
+        assertFalse(result is UnlockResult.Success, "an arbitrary key opened the vault")
+    }
+
+    @Test
+    fun `the device slot never reaches the vault file`() = runTest {
+        // VaultHeader refuses to serialise a device slot at all; this asserts the whole path
+        // honours that, because a device slot in a synced file is a weaker unlock path an
+        // attacker could probe for.
+        val (repo, _) = createdVault()
+        repo.enrolDeviceSlot("Pixel") { keystore.seal(it.copyBytes()) }
+
+        val vaultBytes = assertNotNull(storage.readVault())
+        val header = com.passwird.crypto.VaultContainer.parse(vaultBytes).header
+
+        assertTrue(
+            header.slots.none { it.type == SlotType.DEVICE },
+            "a device slot was written into the vault file",
+        )
+        assertTrue(header.slots.all { it.isSyncable })
+    }
+
+    @Test
+    fun `an enrolment is stored sealed, not in the clear`() = runTest {
+        val (repo, _) = createdVault()
+        repo.enrolDeviceSlot("Pixel") { keystore.seal(it.copyBytes()) }
+
+        val onDisk = File(root, "device-slot.bin").readBytes()
+
+        // The slot's JSON shape would be obvious if it were stored unsealed.
+        for (marker in listOf("commitment", "wrapNonce", "device", "Pixel")) {
+            assertFalse(
+                onDisk.toString(Charsets.ISO_8859_1).contains(marker),
+                "'$marker' is readable in device-slot.bin",
+            )
+        }
+    }
+
+    @Test
+    fun `clearing the enrolment leaves the vault openable by passphrase`() = runTest {
+        // Turning off biometrics must never be a way to lose a vault.
+        val (repo, passphrase) = createdVault()
+        repo.enrolDeviceSlot("Pixel") { keystore.seal(it.copyBytes()) }
+        repo.clearDeviceSlot()
+        repo.lock()
+
+        assertFalse(repo.hasDeviceSlot())
+
+        val fresh = repository()
+        assertIs<VaultState.Locked>(fresh.currentState())
+        val result = Fixtures.passphrase(passphrase).use { fresh.unlock(it, SlotType.PASSPHRASE) }
+        assertIs<UnlockResult.Success>(result)
+    }
+
+    @Test
+    fun `a device slot alone is evidence of a vault`() = runTest {
+        // Part of the FIRST_RUN defence: a device that has enrolled biometrics is not new,
+        // whatever else is missing.
+        val (repo, _) = createdVault()
+        repo.enrolDeviceSlot("Pixel") { keystore.seal(it.copyBytes()) }
+        assertTrue(storage.hasEvidenceOfVault())
+    }
+}
