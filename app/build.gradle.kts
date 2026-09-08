@@ -61,6 +61,11 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.material3)
+    // MainActivity is a FragmentActivity because BiometricPrompt requires a fragment host -
+    // a direct consequence of binding biometrics to a CryptoObject rather than a boolean.
+    implementation(libs.androidx.fragment)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.compose.ui.tooling.preview)
     debugImplementation(libs.androidx.compose.ui.tooling)
     implementation(libs.androidx.activity.compose)
@@ -76,5 +81,6 @@ dependencies {
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.junit.jupiter)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 }

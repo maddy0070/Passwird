@@ -6,11 +6,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.fragment.app.FragmentActivity
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.passwird.design.tokens.PasswirdTheme
 import com.passwird.platform.secure.ScreenPrivacy
 import com.passwird.vaultapp.ui.UnlockScreen

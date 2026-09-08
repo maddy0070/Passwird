@@ -303,6 +303,89 @@ object VaultCrypto {
         return ConstantTime.equals(expected, header.chain)
     }
 
+    // --------------------------------------------------------- device slots
+
+    /**
+     * Wraps the VEK for one device, so biometric unlock can skip the passphrase.
+     *
+     * **The returned slot is device-local and must never be written to the vault file.**
+     * [VaultHeader] rejects it structurally, but the reason is worth stating: the wrapping
+     * key lives in that device's Keystore and is non-exportable, so the slot would be
+     * useless anywhere else — while advertising to anyone holding the file how many devices
+     * the user owns.
+     *
+     * The flow this completes:
+     * 1. the user unlocks with their passphrase, so we hold the VEK;
+     * 2. [generateDeviceKey] produces a random 256-bit device key;
+     * 3. this wraps the VEK under it, giving a slot to store locally;
+     * 4. the platform layer seals the *device key* with a biometric-gated Keystore key.
+     *
+     * Thereafter a fingerprint releases the device key, which opens the slot, which yields
+     * the VEK. At no point is the biometric itself a key — it authorises hardware to use one.
+     */
+    fun createDeviceSlot(
+        vek: SecretBytes,
+        deviceKey: SecretBytes,
+        label: String,
+        nowEpochMillis: Long,
+    ): KeySlot {
+        require(deviceKey.size == Aead.KEY_BYTES) {
+            "a device key must be ${Aead.KEY_BYTES} bytes — it comes from the CSPRNG, not from a password"
+        }
+        return KeySlots.create(
+            vek = vek,
+            secret = deviceKey,
+            type = SlotType.DEVICE,
+            label = label,
+            // No KDF: the secret is already full-entropy random, so stretching it would cost
+            // half a second per unlock and add nothing.
+            kdf = null,
+            nowEpochMillis = nowEpochMillis,
+        )
+    }
+
+    /** A fresh 256-bit device key. Never derived from anything the user knows or is. */
+    fun generateDeviceKey(): SecretBytes = SecretBytes.random(Aead.KEY_BYTES)
+
+    /**
+     * Opens a vault using a locally-held device slot.
+     *
+     * The biometric unlock path. Unlike [unseal] there is no KDF and no passphrase, which
+     * is the entire point — this is what makes daily unlock instant.
+     */
+    fun unsealWithDeviceSlot(
+        bytes: ByteArray,
+        deviceSlot: KeySlot,
+        deviceKey: SecretBytes,
+    ): UnsealedVault {
+        require(deviceSlot.type == SlotType.DEVICE) { "expected a device slot" }
+        val parsed = VaultContainer.parse(bytes)
+
+        // enforceFloor is meaningless here: a device slot has no KDF parameters to check.
+        val vek = KeySlots.unwrap(deviceSlot, deviceKey, enforceFloor = false)
+
+        val plaintext = try {
+            unsealWithVek(bytes, vek)
+        } catch (e: Throwable) {
+            vek.close()
+            throw e
+        }
+
+        return UnsealedVault(
+            vek = vek,
+            plaintext = plaintext,
+            header = parsed.header,
+            headerBytes = parsed.headerBytes,
+            unlockedWith = deviceSlot,
+            // A device slot has no KDF, so there is nothing to upgrade.
+            kdfUpgradeRequired = false,
+            weakSlotTypes = parsed.header.slots
+                .filter { it.kdf?.meetsFloor() == false }
+                .map { it.type }
+                .toSet(),
+        )
+    }
+
     // ------------------------------------------------------------ slot admin
 
     /**

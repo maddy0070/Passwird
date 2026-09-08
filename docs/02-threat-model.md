@@ -83,25 +83,29 @@ stream for every known plaintext value, and fails the build on any hit.
 
 ## 4. What Passwird protects against
 
+A row's **Verified by** cell names a check that runs today. Where nothing runs yet, the cell
+says so in those words — an unverified mitigation is a plan, and recording it as a
+verification is how a threat model starts lying to the people relying on it.
+
 | Threat | Mitigation | Verified by |
 |---|---|---|
-| **T5/T6/T9 — Drive reads the vault** | AES-256-GCM over the entire payload; VEK never leaves the device; Google is never given key material and no escrow exists. | `VaultFileTest`, `CiphertextOnlyTest` |
+| **T5/T6/T9 — Drive reads the vault** | AES-256-GCM over the entire payload; VEK never leaves the device; Google is never given key material and no escrow exists. | `CiphertextOnlyTest`, `VaultCryptoTest`, `NoGoogleKeyPathTest` |
 | **T5 — Drive tampers with the ciphertext** | AEAD authentication tag; any bit flip fails decryption and is surfaced as a *recoverable* error, never as silent partial data. | `TamperDetectionTest` |
 | **T5 — Drive tampers with the header** (e.g. lowering Argon2 cost, swapping key slots, forging a version) | The complete header is bound as AEAD **AAD**. Modifying any header byte breaks the tag. | `HeaderAadTest` |
-| **T5 — Rollback: Drive serves an older, valid vault** to resurrect a deleted credential or revert a password change | Monotonic `vaultVersion` + **highest-seen-version** watermark held in device secure storage. A remote version below the watermark is refused and surfaced to the user. | `RollbackProtectionTest` |
+| **T5 — Rollback: Drive serves an older, valid vault** to resurrect a deleted credential or revert a password change | Monotonic `vaultVersion` + **highest-seen-version** watermark held in device secure storage. A remote version below the watermark is refused and surfaced to the user. | `RollbackGuardTest` |
 | **T5 — Fork / history rewrite** | Each header commits to `SHA-256(previous header)`, forming a hash chain. A rewritten history fails chain validation. | `HashChainTest` |
 | **T5 — Downgrade to a weaker format or KDF** | Client enforces a hard floor on KDF parameters and refuses `formatVersion` below the minimum, regardless of what the file claims. Backwards compatibility is *read-only and floor-checked*, never automatic. | `DowngradeRejectionTest` |
-| **T5 — Truncation / partial write** | Length-prefixed framing with declared lengths validated against actual bytes before any allocation; atomic publish (temp object → verified → swap). | `TruncationTest`, `AtomicPublishTest` |
+| **T5 — Truncation / partial write** | Length-prefixed framing with declared lengths validated against actual bytes before any allocation. | `TamperDetectionTest` covers the framing. **Atomic publish on Drive is NOT implemented** — the local store stages and renames, the Drive transport does not. |
 | **T5 — Key-slot substitution / partitioning oracle** | Explicit **key commitment** per slot, checked in constant time before unwrap. A crafted file cannot decrypt under two different passphrases. | `KeyCommitmentTest` |
 | **T7 — Network interception** | TLS to Google; plus the payload is already end-to-end encrypted, so TLS failure alone is not a vault compromise. Certificate handling left to the platform (pinning rejected — see ADR-0007). | — |
 | **T1 — Stolen locked phone** | Vault at rest is encrypted under a key that exists only wrapped by Keystore (biometric slot) or derived from the passphrase. Auto-lock zeroises the VEK. | `AutoLockTest` |
 | **T2 — Forensic extraction of app storage** | Extracted files are ciphertext. The biometric-slot key is non-exportable and hardware-bound; StrongBox where available. Argon2id (64 MiB, t=3, p=4 floor) makes offline passphrase attack expensive. | `KdfFloorTest` |
-| **T3 — Malicious app reads the clipboard** | Clipboard auto-clear with a countdown; `EXTRA_IS_SENSITIVE` set so the OS suppresses clipboard previews; copy is explicit and never automatic. | `ClipboardPolicyTest` |
-| **T3/T8 — Screenshots and the recents thumbnail** | `FLAG_SECURE` on every window; content masked on `ON_STOP` before the OS snapshot is taken. | Instrumented |
-| **T8 — Shoulder surfing** | Passwords masked by default; reveal is deliberate, momentary and never persisted across navigation. | UI test |
-| **Log / crash / analytics leakage** | No analytics or crash SDK in release. Sensitive types have `toString()` overridden to a redacted form so they cannot be logged accidentally. Release builds strip logging. | `NoSecretsInLogsTest`, `RedactedToStringTest` |
+| **T3 — Malicious app reads the clipboard** | Clipboard auto-clear with a countdown; `EXTRA_IS_SENSITIVE` set so the OS suppresses clipboard previews; copy is explicit and never automatic. | **Not verified.** Implemented, never executed — no test and no device run. |
+| **T3/T8 — Screenshots and the recents thumbnail** | `FLAG_SECURE` on every window; content masked on `ON_STOP` before the OS snapshot is taken. | **Not verified.** Needs an instrumented run that has not happened. |
+| **T8 — Shoulder surfing** | Passwords masked by default; reveal is deliberate, momentary and never persisted across navigation. | **Not verified.** No UI test exists yet. |
+| **Log / crash / analytics leakage** | No analytics or crash SDK in release. Sensitive types have `toString()` overridden to a redacted form so they cannot be logged accidentally. Release builds strip logging via R8. | `NoSecretsInLogsTest`, `RedactedToStringTest`. The R8 stripping itself is **not verified** — it needs a release build nobody has produced. |
 | **Hard-coded secrets** | Static scan over the whole tree in CI; there is no key material in the source or the APK. | `scripts/scan-secrets.sh` in CI |
-| **Backup exfiltration via ADB / cloud backup** | `allowBackup=false`, `dataExtractionRules` excludes vault and key material. | Manifest review |
+| **Backup exfiltration via ADB / cloud backup** | `allowBackup=false`, `dataExtractionRules` excludes vault and key material. | **Not verified.** Manifest reviewed by eye; no build has been produced to confirm it. |
 
 ---
 

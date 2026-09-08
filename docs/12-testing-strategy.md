@@ -29,23 +29,45 @@ platform APIs.
 
 ## 3. Security tests (the ones that matter most)
 
+Every row names something that **exists and runs**. Rows for work not yet done are in §3.1,
+kept separate on purpose: a test list is a safety argument, and a safety argument that
+quietly includes tests nobody has written is worse than a short one.
+
 | Test | Asserts |
 |---|---|
 | `CiphertextOnlyTest` | Serialises a vault populated with sentinel values, then scans every byte handed to the transport for **any** of them. Fails the build on a single hit. This is the test that backs the central product claim. |
-| `TamperDetectionTest` | Every single-bit flip across header and payload is rejected. |
+| `TamperDetectionTest` | Every single-bit flip across header and payload is rejected. Also covers truncation at any offset, appended trailing bytes, foreign files, and over-long declared header/payload lengths — rejected on the declared length, before allocation. |
 | `HeaderAadTest` | Mutating any header field — KDF cost, slot, version, chain — breaks the tag. |
 | `KeyCommitmentTest` | Wrong passphrase yields `WrongSecret` before any unwrap; a crafted file cannot open under two keys. |
-| `RollbackProtectionTest` | A remote version below the watermark is refused and never adopted. |
+| `RollbackGuardTest` | A remote version below the watermark is refused and never adopted. |
 | `HashChainTest` | A rewritten history fails chain validation. |
 | `DowngradeRejectionTest` | Below-floor KDF parameters and out-of-range format versions are refused. |
-| `TruncationTest` | Truncated, over-long and malformed length prefixes are rejected without allocation blow-ups. |
-| `NoSecretsInLogsTest` | A full lifecycle with a captured log sink contains no sentinel values. |
+| `NoSecretsInLogsTest` | A full lifecycle — seal, unlock, recover, wrong passphrase, truncated file, corrupted file — writes no sentinel to stdout or stderr. Includes a planted leak, so the harness cannot pass vacuously. |
 | `RedactedToStringTest` | Every `Secret`-bearing type redacts in `toString()`. |
-| `PreferencesLeakTest` | Nothing vault-derived reaches `SharedPreferences`. |
 | `SearchIndexLeakTest` | The serialised index contains no plaintext secrets. |
-| `NoHardcodedKeysTest` + `scripts/scan-secrets.sh` | No key material in source or build output. |
-| `NoGoogleKeyPathTest` | A complete unlock/decrypt cycle runs with the Google layer absent. |
+| `NoGoogleKeyPathTest` | Structural: no Google/Android/platform type is on the crypto module's classpath or named in any signature or field within it, and no unseal entry point accepts anything identifying a user. Plus a full unlock cycle with the identity layer absent. |
+| `DeviceSlotTest` | A device slot unlocks without the passphrase, is rejected if found in a vault file, and is invalidated by VEK rotation. |
+| `RecoveryKeyTest` | The recovery key round-trips, tolerates real transcription mistakes, and detects >97% of single typos and transpositions before Argon2id runs. |
 | `KdfFloorTest` | Parameters below floor are never used, and are upgraded after unlock. |
+| `scripts/scan-secrets.sh` | 15 static checks: no key material in source, no Google or Android imports in core, no vault data in `SharedPreferences`, no analytics SDK. |
+| `scripts/check-contrast.py` | 56 token pairs meet the WCAG floors in `08-design-system.md` §2.3. |
+
+### 3.1 Named but **not yet written**
+
+> **Corrected 2026-09-08.** An audit compared every test name appearing in these documents
+> against the classes that actually exist. Eleven names did not resolve. Most were real
+> coverage recorded under the wrong name and have been corrected above
+> (`RollbackProtectionTest` → `RollbackGuardTest`; `TruncationTest` and `VaultFileTest` →
+> `TamperDetectionTest` and `HeaderAadTest`; `NoHardcodedKeysTest` → `scan-secrets.sh`;
+> `ContrastTest` → `check-contrast.py`). `NoGoogleKeyPathTest` and `NoSecretsInLogsTest`
+> were genuinely missing and have now been written. The three below are genuinely missing
+> and remain so.
+
+| Test | Would assert | Why it does not exist yet |
+|---|---|---|
+| `PreferencesLeakTest` | Nothing vault-derived reaches `SharedPreferences`. | Needs an instrumented run. `scan-secrets.sh` covers the static half (no vault type is written to preferences in source); the runtime half is unverified. |
+| `ClipboardPolicyTest` | Clipboard auto-clear fires, and `EXTRA_IS_SENSITIVE` is set. | Needs a device. The policy is implemented but **has never been executed**. |
+| `AtomicPublishTest` | A Drive upload interrupted mid-write never replaces a good vault with a partial one. | **The behaviour itself is not implemented.** `EncryptedLocalStore` writes atomically to local disk; the Drive transport has no staged-object-then-swap. See the production-readiness review. |
 
 ## 4. Property-based tests
 

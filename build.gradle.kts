@@ -1,6 +1,13 @@
+// Every plugin any subproject applies is declared here with `apply false`, so plugin
+// versions resolve from one place. Without this, a subproject's `alias(...)` depends on
+// marker resolution and can fail or silently pick a different version.
 plugins {
     alias(libs.plugins.kotlin.jvm) apply false
+    alias(libs.plugins.kotlin.android) apply false
     alias(libs.plugins.kotlin.serialization) apply false
+    alias(libs.plugins.kotlin.compose) apply false
+    alias(libs.plugins.android.application) apply false
+    alias(libs.plugins.android.library) apply false
 }
 
 // Shared configuration for the pure-JVM core modules. Kept here rather than in a

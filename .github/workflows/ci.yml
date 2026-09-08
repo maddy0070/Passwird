@@ -20,6 +20,24 @@ jobs:
       - name: Scan for embedded secrets and architectural violations
         run: ./scripts/scan-secrets.sh
 
+  static-checks:
+    name: Accessibility and dependency checks
+    runs-on: ubuntu-latest
+    # These run without an Android SDK because they read the sources directly. That is the
+    # point: an unresolved import or a token below its contrast floor is caught in seconds,
+    # on every push, rather than waiting on the emulator job.
+    steps:
+      - uses: actions/checkout@v4
+
+      # docs/08-design-system.md section 2.3 commits to 4.5:1 for text and 3:1 for
+      # meaningful non-text. This is what makes that a commitment rather than a claim; it
+      # parses Color.kt itself, so it cannot drift from the tokens it checks.
+      - name: Design token contrast (WCAG 2.1)
+        run: python3 scripts/check-contrast.py
+
+      - name: Android module import/dependency consistency
+        run: python3 scripts/check-android-deps.py
+
   core-tests:
     name: Core test suite (JVM)
     runs-on: ubuntu-latest

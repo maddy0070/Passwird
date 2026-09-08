@@ -53,7 +53,6 @@ fun PrimaryButton(
         modifier = modifier,
         enabled = enabled && !loading,
         background = colors.textPrimary,
-        contentColor = colors.textInverse,
         border = null,
     ) {
         ButtonContent(text = text, icon = icon, loading = loading, contentColor = colors.textInverse)
@@ -76,8 +75,9 @@ fun SecondaryButton(
         modifier = modifier,
         enabled = enabled && !loading,
         background = Color.Transparent,
-        contentColor = colors.textPrimary,
-        border = colors.lineStrong,
+        // Not `lineStrong`: with no fill, this border is the only thing that says where the
+        // button is. It has to clear 3:1, which a decorative rule deliberately does not.
+        border = colors.borderInteractive,
     ) {
         ButtonContent(text = text, icon = icon, loading = loading, contentColor = colors.textPrimary)
     }
@@ -96,7 +96,6 @@ fun TextButton(
         modifier = modifier,
         enabled = enabled,
         background = Color.Transparent,
-        contentColor = colors.textPrimary,
         border = null,
     ) {
         ButtonContent(text = text, icon = null, loading = false, contentColor = colors.textPrimary)
@@ -123,7 +122,6 @@ fun DestructiveButton(
         modifier = modifier,
         enabled = enabled,
         background = Color.Transparent,
-        contentColor = colors.danger,
         border = colors.danger,
     ) {
         ButtonContent(text = text, icon = PasswirdIcons.Delete, loading = false, contentColor = colors.danger)
@@ -190,7 +188,6 @@ private fun ButtonSurface(
     modifier: Modifier,
     enabled: Boolean,
     background: Color,
-    contentColor: Color,
     border: Color?,
     content: @Composable () -> Unit,
 ) {
@@ -228,9 +225,6 @@ private fun ButtonSurface(
         contentAlignment = Alignment.Center,
         content = { content() },
     )
-    // contentColor is applied by the caller's ButtonContent; kept as a parameter so the
-    // surface and its content cannot drift apart.
-    @Suppress("UNUSED_EXPRESSION") contentColor
 }
 
 @Composable

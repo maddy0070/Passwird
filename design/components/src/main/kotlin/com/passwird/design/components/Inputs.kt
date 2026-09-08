@@ -80,7 +80,7 @@ fun PasswirdTextField(
                     PasswirdTheme.shapes.hairline,
                     when {
                         error != null -> colors.danger
-                        focused -> colors.lineStrong
+                        focused -> colors.borderInteractive
                         else -> colors.line
                     },
                     PasswirdTheme.shapes.small,
@@ -269,7 +269,7 @@ fun SearchField(
             .background(colors.surfaceSunken, PasswirdTheme.shapes.small)
             .border(
                 PasswirdTheme.shapes.hairline,
-                if (focused) colors.lineStrong else colors.line,
+                if (focused) colors.borderInteractive else colors.line,
                 PasswirdTheme.shapes.small,
             )
             .padding(horizontal = spacing.sm),
@@ -425,7 +425,7 @@ fun TagChip(
             .background(if (selected) colors.surfaceRaised else Color.Transparent, ChipShape)
             .border(
                 PasswirdTheme.shapes.hairline,
-                if (selected) colors.lineStrong else colors.line,
+                if (selected) colors.borderInteractive else colors.line,
                 ChipShape,
             )
             .then(

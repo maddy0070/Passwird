@@ -65,7 +65,7 @@ usage data" switch would imply a pipeline exists.
 | **Secret** | Passwords, keys, card numbers, notes, recovery key, VEK | Encrypted at rest, RAM-only when live, typed `Secret`, never logged, never serialised outside the encrypted payload |
 | **Sensitive** | Titles, usernames, URLs, tags, timestamps, item count | Inside the ciphertext. **No "non-sensitive metadata" tier exists** — this is precisely what made the 2022 LastPass breach so damaging |
 | **Operational** | Sync watermark, generation token, dirty flag | Encrypted local store (not `SharedPreferences`) |
-| **Benign** | Theme, sort order, onboarding-complete flag | `SharedPreferences`. **Nothing vault-derived may ever be written here** — asserted by `PreferencesLeakTest` |
+| **Benign** | Theme, sort order, onboarding-complete flag | `SharedPreferences`. **Nothing vault-derived may ever be written here** — asserted statically by `scripts/scan-secrets.sh`; the runtime assertion (`PreferencesLeakTest`) is **not yet written** — it needs an instrumented run |
 
 ---
 
@@ -73,7 +73,7 @@ usage data" switch would imply a pipeline exists.
 
 | Surface | Control |
 |---|---|
-| **Logs** | No logging of vault data at any level. `Secret.toString()` returns a redacted marker so accidental interpolation cannot leak. Release builds strip logging via R8. Asserted by `NoSecretsInLogsTest` and `RedactedToStringTest`. |
+| **Logs** | No logging of vault data at any level. `Secret.toString()` returns a redacted marker so accidental interpolation cannot leak. Release builds strip logging via R8. Asserted by `NoSecretsInLogsTest` and `RedactedToStringTest`. The R8 stripping itself is unverified until a release build exists. |
 | **Crash reports** | No crash SDK. Unhandled exceptions are caught at the boundary and re-thrown without vault context attached. |
 | **Screenshots / recents** | `FLAG_SECURE` on every window; content masked on `ON_STOP` before the OS snapshot. |
 | **Clipboard** | `EXTRA_IS_SENSITIVE` so the OS suppresses the preview; visible auto-clear countdown; cleared on lock and on backgrounding. |

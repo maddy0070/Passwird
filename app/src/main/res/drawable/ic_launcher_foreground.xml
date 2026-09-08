@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Quiet Precision lock mark: 1.5dp-equivalent stroke, square caps, square joins,
+  no fill. Drawn on the 108dp adaptive canvas with the shackle and body sitting inside
+  the 72dp safe zone so no launcher mask can clip them.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- body -->
+    <path
+        android:pathData="M40,52 L68,52 L68,71 L40,71 Z"
+        android:strokeColor="#E8EBEE"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="square"
+        android:strokeLineJoin="miter" />
+
+    <!-- shackle -->
+    <path
+        android:pathData="M46,52 L46,46 A8,8 0 0 1 62,46 L62,52"
+        android:strokeColor="#E8EBEE"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="square"
+        android:strokeLineJoin="miter" />
+
+    <!-- keyway: the single mark of signal colour, exactly as the palette prescribes -->
+    <path
+        android:pathData="M54,58 L54,65"
+        android:strokeColor="#5FD0BC"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="square" />
+</vector>

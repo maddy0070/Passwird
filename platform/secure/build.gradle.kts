@@ -32,6 +32,9 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.biometric)
+    // BiometricUnlock.unlock() takes a FragmentActivity, so the type is part of this
+    // module's public API.
+    api(libs.androidx.fragment)
     implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.kotlinx.coroutines.core)

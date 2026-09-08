@@ -19,10 +19,16 @@ android {
 }
 
 dependencies {
-    implementation(platform(libs.androidx.compose.bom))
+    // `api(platform(...))`, not `implementation`: the Compose artifacts below are exposed
+    // through `api` and are versionless, so consumers need the BOM on their compile
+    // classpath too or those versions never resolve.
+    api(platform(libs.androidx.compose.bom))
     api(libs.androidx.compose.foundation)
     api(libs.androidx.compose.ui)
     api(libs.androidx.compose.ui.graphics)
+    // PasswirdTheme installs a minimal Material scheme so platform chrome (text selection
+    // handles, the IME) picks up our palette. No Material component ships in default dress.
+    api(libs.androidx.compose.material3)
     implementation(libs.androidx.core.ktx)
 
     testImplementation(libs.kotlin.test)

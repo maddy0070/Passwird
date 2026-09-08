@@ -28,9 +28,14 @@ identifier to the VEK. Signing out of Google does not lock the vault; locking th
 vault does not sign out of Google. They are orthogonal systems that happen to live in
 the same app.
 
-**Test that enforces this:** `NoGoogleKeyPathTest` — a full unlock/decrypt cycle runs
-with the Google identity layer entirely absent; if any key operation depended on it,
-the test would fail to compile or fail at runtime.
+**Test that enforces this:** `NoGoogleKeyPathTest`. It does not merely run an unlock with
+Google absent — that would prove only that *one* path avoids Google, not that no path
+exists. It walks every compiled class in `core:crypto` and inspects the types named in
+every field and signature, asserting that no `com.google.*`, `android.*`, `androidx.*` or
+platform-layer type is reachable at all, and that no unseal entry point accepts a parameter
+identifying a user. `scripts/scan-secrets.sh` asserts the same over source imports; the two
+are deliberately redundant, because a type can arrive transitively without ever being
+imported by name.
 
 ---
 
@@ -130,11 +135,26 @@ first rather than last.
 
 ### 5.1 Design
 
-- **128 bits of entropy**, rendered as 24 Crockford Base32 characters in groups of
-  four, plus a checksum character to catch transcription errors before Argon2 runs.
+- **128 bits of entropy**, rendered as **26 Crockford Base32 characters plus 2 checksum
+  characters**, shown as seven groups of four.
+
+  > **Corrected 2026-09-08.** This section previously specified 24 characters plus one
+  > checksum character. That is arithmetically impossible: Base32 carries 5 bits per
+  > character, so 24 characters hold 120 bits, not 128. Implementing it as written would
+  > have silently discarded 8 bits of recovery-key entropy — a 256-fold reduction in the
+  > work of guessing one. 26 data characters (130 bits of capacity, 2 of padding) is the
+  > smallest encoding that carries the whole key. The implementation in
+  > `core/crypto/.../RecoveryKey.kt` is the normative version and is covered by
+  > `RecoveryKeyTest`.
 - Generated at vault creation, **shown exactly once**.
 - Onboarding requires re-entering a randomly chosen group before continuing. Not a
   checkbox — an actual verification that the user recorded it.
+- The 10-bit checksum is validated **before** Argon2id runs, so a mistyped character costs
+  the user an instant "there's a typo" rather than a half-second wait followed by an
+  ambiguous failure. It is integrity, not security: it protects against fingers, not
+  attackers.
+- Decoding folds the Crockford confusables (`I`/`l` → `1`, `O` → `0`) and ignores case,
+  spacing and separators, so the most common transcription mistakes still decode correctly.
 - The recovery slot is inside the synced vault, so recovery works on a brand-new
   device with nothing but the Google account and the key itself.
 - **We never see it.** There is no escrow. This is the structural answer to the first

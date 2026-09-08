@@ -56,10 +56,11 @@ peer, not an afterthought.
 | `surfaceRaised` | `#161A1F` | Menus, dialogs, pressed rows |
 | `surfaceSunken` | `#07090B` | Input wells, code blocks |
 | `line` | `#232830` | Default hairline (1dp) |
-| `lineStrong` | `#333A44` | Section boundaries, focused inputs |
+| `lineStrong` | `#333A44` | Section boundaries. **Decorative only** — below 3:1 by design |
+| `borderInteractive` | `#606771` | Control boundaries, focused inputs, selected chips (≥3:1) |
 | `textPrimary` | `#E8EBEE` | Body, values |
 | `textSecondary` | `#9BA3AD` | Labels, metadata |
-| `textTertiary` | `#6B7480` | Placeholders, timestamps, disabled |
+| `textTertiary` | `#7A838F` | Placeholders, timestamps, disabled |
 | `signal` | `#5FD0BC` | **Sealed / encrypted / synced only** |
 | `signalDim` | `#2A5F58` | Signal at rest, borders |
 | `attention` | `#E8B166` | Weak, reused, ageing, needs review |
@@ -74,10 +75,11 @@ peer, not an afterthought.
 | `surface` | `#FFFFFF` |
 | `surfaceSunken` | `#EFEFEC` |
 | `line` | `#E0E1DD` |
-| `lineStrong` | `#C6C8C2` |
+| `lineStrong` | `#C6C8C2` — decorative only |
+| `borderInteractive` | `#878983` |
 | `textPrimary` | `#14171A` |
-| `textSecondary` | `#5A626B` |
-| `textTertiary` | `#868E98` |
+| `textSecondary` | `#485059` |
+| `textTertiary` | `#646C76` |
 | `signal` | `#1B7F6E` (darkened for contrast on light) |
 | `attention` | `#9A6414` |
 | `danger` | `#B23B2E` |
@@ -90,9 +92,34 @@ peer, not an afterthought.
 - `signal` is reserved. It marks *sealed, synced, verified*. Using it for a generic
   button or a decorative highlight destroys its meaning and is a review failure.
 - Contrast floor: **4.5:1** for all text including `textTertiary` at its intended
-  sizes; **3:1** for borders and icons carrying meaning. Verified by
-  `ContrastTest` over the token table, not by eye.
+  sizes; **3:1** for borders and icons carrying meaning. Enforced by
+  `scripts/check-contrast.py`, which parses `Color.kt` itself — 56 pairs across both
+  palettes, run in CI. Not by eye.
 - One accent per screen. If two things are coloured, one of them is wrong.
+
+> **Corrected 2026-09-08.** The floors above were previously attributed to a `ContrastTest`
+> that did not exist, so the commitment was never actually checked. When the check was
+> written, **six pairs failed**:
+>
+> | Pair | Was | Floor |
+> |---|---|---|
+> | `textTertiary` on `ground` (dark) | 4.14:1 | 4.5:1 |
+> | `textTertiary` on `surface` (dark) | 3.93:1 | 4.5:1 |
+> | `textTertiary` on `ground` (light) | 3.06:1 | 4.5:1 |
+> | `textTertiary` on `surface` (light) | 3.31:1 | 4.5:1 |
+> | `lineStrong` on `ground` (dark) | 1.71:1 | 3:1 |
+> | `lineStrong` on `ground` (light) | 1.56:1 | 3:1 |
+>
+> These were defects, not stale documentation. `textTertiary` renders field labels and
+> placeholders — essential content under WCAG 1.4.3 — and `lineStrong` was the *only*
+> boundary of the transparent-filled `SecondaryButton`, which 1.4.11 covers.
+>
+> The fix: `textTertiary` moved to clear 4.5:1 against all four surfaces (not just the two
+> the first draft of the check tested — placeholders sit on `surfaceSunken`, the worst case
+> in light mode, which the original pair list missed). Light `textSecondary` moved with it
+> to keep three visibly distinct steps. The interactive uses of `lineStrong` were split into
+> the new `borderInteractive`; `lineStrong` itself stays quiet and is now documented as
+> decorative, which is the exemption WCAG actually grants it.
 
 ---
 
