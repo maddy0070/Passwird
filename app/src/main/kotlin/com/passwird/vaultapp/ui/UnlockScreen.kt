@@ -241,7 +241,12 @@ fun UnlockScreen(
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             GlyphLabel(
                 icon = PasswirdIcons.Shield,
-                text = "Everything stays on this phone until you unlock it",
+                // Describes the architecture rather than gesturing at it. The previous line
+                // claimed everything remained on the handset, which was wrong in both
+                // directions: an encrypted copy does go to Drive, and unlocking is not what
+                // keeps anything here. `scan-secrets.sh` now fails the build on that claim.
+                text = "Your vault is encrypted and protected on this device. " +
+                    "Unlock it to access your passwords.",
                 color = colors.textTertiary,
             )
         }

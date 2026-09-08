@@ -208,6 +208,21 @@ object RecoveryKey {
         return "${ALPHABET[(value ushr 5) and 0x1F]}${ALPHABET[value and 0x1F]}"
     }
 
+    /**
+     * Whether a group the user typed matches the one they were shown.
+     *
+     * Exists so onboarding can verify a single group without reaching for [normalise], which
+     * is internal on purpose. Forgiving in exactly the way [parse] is: case, spacing and the
+     * Crockford confusables are folded, so someone who writes `O` for `0` still passes — which
+     * is the entire reason for choosing that alphabet.
+     *
+     * Not a secret comparison. The user is being checked against a key this device just
+     * generated and displayed, not against an attacker's guess, so there is no oracle here to
+     * protect. [parse] is where a real secret is handled, and it uses a constant-time check.
+     */
+    fun groupMatches(entry: String, expected: String): Boolean =
+        normalise(entry) == normalise(expected) && normalise(expected).isNotEmpty()
+
     /** Generates a fresh key and renders it, for the one screen that shows it. */
     fun generateFormatted(): Pair<SecretBytes, String> {
         val key = VaultCrypto.generateRecoveryKey()

@@ -1,9 +1,11 @@
 package com.passwird.store
 
 import com.passwird.crypto.CryptoError
+import com.passwird.crypto.KdfParams
 import com.passwird.crypto.KdfPolicy
 import com.passwird.crypto.SecretBytes
 import com.passwird.crypto.SlotType
+import com.passwird.crypto.VaultContainer
 import com.passwird.crypto.VaultCrypto
 import com.passwird.model.DeviceId
 import com.passwird.model.Tombstone
@@ -248,7 +250,87 @@ class VaultRepository(
      */
     suspend fun remoteVaultState(): RemoteVaultState =
         runCatching { storage.transport().probe() }
-            .getOrElse { RemoteVaultState.Interrupted(emptyList()) }
+            .getOrElse { VaultStateResolver.remoteFailure(it) }
+
+    /**
+     * Which [VaultState] the application is in.
+     *
+     * The single question the first screen must ask. It replaces `vault == null`, which meant
+     * *not unlocked* and was being read as *locked* — so a fresh install was shown a lock
+     * screen and asked for a passphrase that had never been chosen.
+     *
+     * Consults the remote only when there is no local vault, so an ordinary unlock stays
+     * offline and instant. A locked vault is a locked vault whatever Drive says.
+     */
+    suspend fun currentState(): VaultState {
+        val open = _vault.value
+        if (open != null) return VaultState.Unlocked(open)
+
+        val bytes = storage.readVault()
+        if (bytes != null) {
+            return VaultStateResolver.resolve(
+                unlocked = null,
+                localVault = bytes,
+                localEvidence = true,
+                remote = RemoteVaultState.Empty, // unreachable here: a local vault decides it
+                parses = { runCatching { VaultContainer.parse(it) }.isSuccess },
+            )
+        }
+
+        return VaultStateResolver.resolve(
+            unlocked = null,
+            localVault = null,
+            localEvidence = storage.hasEvidenceOfVault(),
+            remote = remoteVaultState(),
+        )
+    }
+
+    /**
+     * Creates a brand-new vault on this device.
+     *
+     * **The caller must have established [VaultState.mayCreateVault] first.** This method
+     * cannot check for itself without racing the state it was given, so it enforces the one
+     * thing it can see: it refuses to overwrite a vault that already exists locally. That is
+     * a backstop, not the safety argument — the safety argument is the state machine.
+     *
+     * The vault is left **unlocked**, because the user has just proven the passphrase by
+     * typing it twice and immediately needs to be inside. It is written to disk before this
+     * returns, so a crash on the next frame cannot lose it.
+     *
+     * @param recoveryKey the caller generates, displays and verifies this before calling.
+     *   Passed in rather than generated here so it cannot be created without a screen having
+     *   shown it — a recovery key the user never saw is worse than none, because it makes the
+     *   vault look recoverable when it is not.
+     */
+    suspend fun createVault(
+        passphrase: SecretBytes,
+        recoveryKey: SecretBytes,
+        kdf: KdfParams = KdfParams.default(VaultCrypto.randomSalt()),
+    ): CreateResult = mutex.withLock {
+        if (storage.readVault() != null) return CreateResult.VaultAlreadyExists
+
+        val document = VaultDocument(vaultId = UUID.randomUUID())
+
+        return try {
+            VaultCrypto.create(
+                plaintext = VaultDocumentCodec.encodeToBytes(document),
+                passphrase = passphrase,
+                recoveryKey = recoveryKey,
+                nowEpochMillis = clock().toEpochMilli(),
+                passphraseKdf = kdf,
+                recoveryKdf = KdfParams.default(VaultCrypto.randomSalt()),
+            ).use { created ->
+                storage.writeVault(created.bytes)
+
+                val sessionKey = SecretBytes.copyOf(created.vek.copyBytes())
+                install(sessionKey, created.header.vaultId, created.header.slots, document)
+
+                CreateResult.Created
+            }
+        } catch (error: Throwable) {
+            CreateResult.Failed(error.message ?: "the vault could not be created")
+        }
+    }
 
     /** Only reachable from the E-17 / E-18 screen, after the user has explicitly chosen it. */
     suspend fun forcePublishLocal(): SyncOutcome {
@@ -256,6 +338,16 @@ class VaultRepository(
         val document = _vault.value ?: return SyncOutcome.UpToDate
         return engine.forcePublishLocal(document).also { _syncStatus.value = it }
     }
+}
+
+/** The outcome of creating a vault. */
+sealed interface CreateResult {
+    data object Created : CreateResult
+
+    /** A vault already exists here. The backstop against a state-machine mistake. */
+    data object VaultAlreadyExists : CreateResult
+
+    data class Failed(val detail: String) : CreateResult
 }
 
 sealed interface UnlockResult {
@@ -299,6 +391,16 @@ interface VaultStorage {
 
     /** Header of the last stored version, for the hash chain. */
     suspend fun lastHeaderBytes(): ByteArray?
+
+    /**
+     * Whether this device holds any trace of a vault, even when [readVault] returns null.
+     *
+     * Part of the storage contract rather than an implementation detail, because the vault
+     * state machine cannot decide [VaultState.FirstRun] without it. A device with sync
+     * bookkeeping, a cached header or an abandoned staged write has held a vault, and must
+     * never be offered vault creation.
+     */
+    suspend fun hasEvidenceOfVault(): Boolean
 
     fun transport(): VaultTransport
     fun syncStateStore(): SyncStateStore

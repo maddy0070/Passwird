@@ -257,6 +257,37 @@ else
   dim "skip  manifest not present"
 fi
 
+# ---------------------------------------------------------------------------
+# User-facing copy.
+#
+# Two classes of defect, both found in a running build rather than by reading:
+# a misspelling of the product's central term, and a security claim that was
+# simply not true of the architecture. Neither is caught by a compiler, and both
+# are the kind of thing that survives indefinitely once shipped.
+# ---------------------------------------------------------------------------
+CHECKS=$((CHECKS + 1))
+if grep -rniE '\bparaphrase\b' --include=*.kt --include=*.xml app design core platform data 2>/dev/null; then
+  red "FAIL  the term is 'passphrase', never 'paraphrase'"
+  FAILURES=$((FAILURES + 1))
+else
+  dim "ok    'passphrase' is spelled consistently"
+fi
+
+CHECKS=$((CHECKS + 1))
+# Claims that overstate what the architecture does. "Everything stays on this
+# phone" is false once an encrypted copy syncs to Drive; the honest line says the
+# vault is encrypted here and that only an encrypted copy ever leaves.
+# Only string literals count, never comments - the comment recording *why* this
+# copy was changed must not be the thing that fails the check.
+if grep -rn 'stays on this phone\|stays in this phone\|never leaves this phone' \
+     --include=*.kt app design 2>/dev/null | grep -vE ':[[:space:]]*(//|\*)'; then
+  red "FAIL  user-facing copy overstates what the architecture guarantees"
+  printf '      An encrypted copy does leave the device for Drive. Say that plainly.\n'
+  FAILURES=$((FAILURES + 1))
+else
+  dim "ok    no user-facing copy claims data never leaves the device"
+fi
+
 echo
 if [[ $FAILURES -eq 0 ]]; then
   green "PASS  $CHECKS checks, 0 failures"

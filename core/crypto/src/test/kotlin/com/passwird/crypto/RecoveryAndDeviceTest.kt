@@ -379,3 +379,47 @@ class DeviceSlotTest {
         phoneA.close(); phoneB.close()
     }
 }
+
+/**
+ * [RecoveryKey.groupMatches] — the check that stands between a user who wrote their recovery
+ * key down and one who tapped through the screen that showed it.
+ */
+class RecoveryKeyGroupMatchTest {
+
+    @Test
+    fun `a correctly copied group matches`() {
+        val (key, formatted) = RecoveryKey.generateFormatted()
+        key.close()
+        val groups = formatted.split("-")
+
+        for (group in groups) {
+            assertTrue(RecoveryKey.groupMatches(group, group), "'$group' did not match itself")
+        }
+    }
+
+    @Test
+    fun `the real transcription mistakes still match`() {
+        // The entire reason for choosing Crockford. Someone copying by hand who writes a
+        // letter O where the key has a zero has not made a mistake we should punish.
+        val expected = "0O1I"
+        for (variant in listOf("0o1i", "OO1I", "00LI", "0 o 1 i", "o01l")) {
+            assertTrue(
+                RecoveryKey.groupMatches(variant, expected),
+                "'$variant' should have matched '$expected'",
+            )
+        }
+    }
+
+    @Test
+    fun `a wrong group does not match`() {
+        assertFalse(RecoveryKey.groupMatches("ABCD", "ABCE"))
+        assertFalse(RecoveryKey.groupMatches("", "ABCD"))
+        assertFalse(RecoveryKey.groupMatches("ABCD", ""))
+    }
+
+    @Test
+    fun `an empty expected group never matches, even against empty input`() {
+        // Guards the failure mode where a lost formatted key would let any entry through.
+        assertFalse(RecoveryKey.groupMatches("", ""))
+    }
+}

@@ -190,3 +190,93 @@ the brief could not be completed end to end today.
 5. **Google OAuth client and a real account**, then the Drive sequence: upload → download →
    decrypt → modify → sync → restart → sync, with the Drive artifact scanned for plaintext.
 6. **`FLAG_SECURE`, clipboard auto-clear and `adb backup`** checked on a device.
+
+
+---
+
+## 7. Vault state machine (added 2026-09-08, after the app first ran)
+
+Running the APK exposed a defect no test could have caught, because the application had no
+concept of the situation: **a fresh installation showed "Your vault is locked"** and asked for
+a master passphrase that had never been chosen.
+
+### Root cause
+
+Routing was `if (repository.vault == null) → UnlockScreen`. That expression means *not
+unlocked*. It was being read as *locked*. A boolean cannot distinguish the seven situations
+this product has to tell apart, and the distinctions are not cosmetic — exactly one of them
+permits creating a vault, and creating one in any of the others can overwrite a real vault.
+
+### The fix, at the domain level
+
+`core:store/VaultState.kt` — a sealed hierarchy plus `VaultStateResolver`, pure JVM. States
+are resolved **most-evidence-first, with `FirstRun` last**: it is the only state that permits
+creating a vault, so it is the hardest to reach.
+
+| State | Reached when |
+|---|---|
+| `Unlocked` | a session is open — outranks everything, including the remote |
+| `Locked` | a local vault file exists and parses |
+| `Corrupted` | a local vault file exists and does not parse |
+| `RemoteVaultAvailable` | no local vault; the remote holds a live one |
+| `VaultRecoveryAvailable` | no local vault; the remote has a staged/superseded/backup copy |
+| `RecoveryRequired` | local evidence of a vault, and nothing available to restore |
+| `FirstRunRemoteUnchecked` | nothing local; the remote **could not be asked** |
+| `FirstRun` | nothing local, and the remote **answered** that it has nothing |
+
+`SyncState` (UNAVAILABLE / SYNCING / SYNCED) is modelled **separately**, on purpose: a vault
+is *unlocked and syncing*, or *locked and offline*. Folding them into one enum would require
+the product of both sets and would let impossible states be constructed.
+
+`RemoteVaultState.Unavailable` was added alongside `Present` / `Interrupted` / `Empty`. "We
+could not ask" is a third answer, and collapsing it into either of the others is how an
+offline user gets told they have no vault.
+
+### First-run experience
+
+`WelcomeScreen` — "Your private vault", with **Create new vault** and **Restore existing
+vault** as equal paths. When the remote could not be checked, a banner says so and points at
+Restore as the safer choice, because offline-first means this cannot block but the ambiguity
+must be visible.
+
+Create flow: choose passphrase → confirm → explanation of what it does and that nobody can
+reset it → recovery key shown once → acknowledge → **verify a randomly chosen group** →
+create → unlocked. The recovery key is generated before the screen that displays it, held only
+in memory, and zeroised on completion or cancellation.
+
+### Copy
+
+The unlock screen said "Everything stays on this phone until you unlock it", which is wrong in
+both directions — an encrypted copy does go to Drive, and unlocking is not what keeps anything
+here. Replaced with "Your vault is encrypted and protected on this device. Unlock it to access
+your passwords." Two `scan-secrets.sh` checks now enforce this: one fails the build on
+"paraphrase", one on any claim that data never leaves the device. Both validated by planting a
+violation.
+
+**On the reported "Master paraphrase":** no occurrence of that spelling exists anywhere in the
+source tree, then or now. The field label has always read "Master passphrase". The check was
+added regardless, so the term cannot drift.
+
+### Verification status
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| 1. Fresh installation → FIRST_RUN | **VERIFIED** | `a fresh installation is FIRST_RUN, not LOCKED` |
+| 2. Existing local vault → LOCKED | **VERIFIED** | `a readable local vault is LOCKED` |
+| 3. Existing unlocked vault → UNLOCKED | **VERIFIED** | `an open session is UNLOCKED and outranks everything the remote says` |
+| 4. Drive unreachable + no local vault ≠ FIRST_RUN | **VERIFIED** | `no local vault and an unreachable remote is NOT FIRST_RUN`, `an unreachable Drive with no local vault is never FIRST_RUN` |
+| 5. Remote vault exists → RESTORE | **VERIFIED** | `a remote vault with no local one is the RESTORE path` |
+| 6. Corrupted vault → CORRUPTED | **VERIFIED** | `a damaged local vault file is CORRUPTED` |
+| 7. Recovery available → recovery flow | **VERIFIED** | `an interrupted remote publish routes to recovery, not onboarding` |
+| 8. Restart after creation → LOCKED | **VERIFIED** | `restarting after creating a vault is LOCKED, not FIRST_RUN` |
+| 9. Successful unlock → UNLOCKED | **VERIFIED** | `a successful unlock moves LOCKED to UNLOCKED` |
+| 10. Google sign-out preserves the vault | **VERIFIED** | `losing the Google account does not destroy the local vault` |
+
+Plus: `FIRST_RUN is the only state that fully permits creating a vault`, which enumerates every
+state so one added later cannot quietly acquire permission.
+
+**Android-runtime-unverified:** that these states render the right screens on a device. The
+routing compiles and lints, and the state machine underneath it is fully tested, but no screen
+has been observed. Biometric enrolment, the Drive restore path and device-mediated
+authorization (ADR-0010) remain unimplemented — the restore paths are shown and disabled
+rather than faked.

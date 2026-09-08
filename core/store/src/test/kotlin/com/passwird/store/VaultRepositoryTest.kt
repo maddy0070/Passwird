@@ -352,11 +352,18 @@ class NoVaultIsEarnedTest {
     }
 
     @Test
-    fun `an unreachable remote is Interrupted, never Empty`() = runTest {
+    fun `an unreachable remote is Unavailable, never Empty`() = runTest {
         // "We could not reach Drive" and "Drive has nothing" must not collapse into the same
         // answer when the next action is *create a new vault*.
+        //
+        // This asserted `Interrupted` when it was written, which was safe but imprecise:
+        // "could not ask" and "something here needs recovering" are different situations
+        // needing different words on screen, so unreachable now has its own state.
         transport.failProbe = true
 
-        assertIs<RemoteVaultState.Interrupted>(repository().remoteVaultState())
+        val state = repository().remoteVaultState()
+
+        assertFalse(state is RemoteVaultState.Empty, "an unreachable Drive was read as empty")
+        assertIs<RemoteVaultState.Unavailable>(state)
     }
 }

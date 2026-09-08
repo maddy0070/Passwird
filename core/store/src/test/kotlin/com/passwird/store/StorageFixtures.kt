@@ -75,6 +75,12 @@ class FakeTransport : VaultTransport {
         return if (bytes != null) RemoteVaultState.Present else RemoteVaultState.Empty
     }
 
+    /** Models a revoked account: every remote call fails, as it would with no token. */
+    fun signOut() {
+        failProbe = true
+        bytes = null
+    }
+
     override suspend fun stat(): RemoteStat? =
         bytes?.let { RemoteStat(generation.toString(), it.size.toLong(), 0L) }
 

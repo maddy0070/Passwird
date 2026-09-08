@@ -182,7 +182,22 @@ sealed interface RemoteVaultState {
      */
     data class Interrupted(val evidence: List<String>) : RemoteVaultState
 
-    /** Nothing here at all. The only state in which creating a vault is safe. */
+    /**
+     * The remote could not be reached or read, so **nothing is known**.
+     *
+     * Deliberately not [Empty] and deliberately not [Interrupted]. "We could not ask" is a
+     * third answer, and collapsing it into either of the others is how an offline user gets
+     * told they have no vault. It is separate from [Interrupted] because the two need
+     * different words on screen: one is "we could not check", the other is "something here
+     * needs recovering".
+     */
+    data class Unavailable(val reason: String) : RemoteVaultState
+
+    /**
+     * Nothing here at all — confirmed by a store that answered.
+     *
+     * The only remote state in which creating a vault is unambiguously safe.
+     */
     data object Empty : RemoteVaultState
 }
 

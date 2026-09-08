@@ -122,7 +122,7 @@ class FileVaultStorage(
      * **A `NoVault` verdict has to be earned.** Any of these means the opposite: this device
      * has had a vault, and the right destination is recovery, not onboarding.
      */
-    suspend fun hasEvidenceOfVault(): Boolean = withContext(io) {
+    override suspend fun hasEvidenceOfVault(): Boolean = withContext(io) {
         vaultFile.isFile || headerFile.isFile || stateFile.isFile || baseFile.isFile ||
             snapshotFile.isFile ||
             root.listFiles { file -> file.name.startsWith(TEMP_PREFIX) }?.isNotEmpty() == true

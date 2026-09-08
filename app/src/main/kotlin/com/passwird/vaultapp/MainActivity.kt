@@ -7,7 +7,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -16,6 +20,7 @@ import androidx.lifecycle.lifecycleScope
 import com.passwird.design.tokens.PasswirdTheme
 import com.passwird.platform.secure.AppLockController
 import com.passwird.platform.secure.ScreenPrivacy
+import com.passwird.store.VaultState
 import com.passwird.vault.lock.AutoLockSettings
 import com.passwird.vaultapp.ui.UnlockScreen
 import kotlinx.coroutines.launch
@@ -116,6 +121,19 @@ fun PasswirdApp(
     val vault by container.repository.vault.collectAsState()
     val unlockState by unlockController.state.collectAsState()
 
+    val onboarding = remember(container) { OnboardingController(container.repository) }
+    val step by onboarding.step.collectAsState()
+
+    // The vault's lifecycle state, resolved from storage and the remote rather than inferred
+    // from `vault == null`. That inference is what put a lock screen in front of a fresh
+    // install: it means *not unlocked*, and it was being read as *locked*.
+    //
+    // Recomputed whenever the vault reference changes, which covers creation, unlock and lock.
+    var vaultState by remember { mutableStateOf<VaultState?>(null) }
+    LaunchedEffect(vault) {
+        vaultState = container.repository.currentState()
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -131,11 +149,17 @@ fun PasswirdApp(
                 }
             },
     ) {
-        // A null vault is a locked vault, and there is deliberately no route past this
-        // branch — the unlocked tree is not composed at all while locked, so no screen that
-        // could render a credential exists to be navigated to by mistake.
-        if (vault == null) {
-            UnlockScreen(
+        // Routing is driven by the resolved state, not by a nullable reference. The unlocked
+        // tree is composed only in the Unlocked branch, so a locked or absent vault has no
+        // rendered screen that could hold a credential — the boundary stays structural.
+        when (val state = vaultState) {
+            // Still resolving. A blank ground for a frame or two is the honest answer; showing
+            // a lock screen "meanwhile" is exactly the bug being fixed.
+            null -> Unit
+
+            is VaultState.Unlocked -> UnlockedRoot(container = container)
+
+            is VaultState.Locked -> UnlockScreen(
                 state = unlockState,
                 // Biometric enrolment is a later step; the passphrase path is the one that
                 // must work first, and claiming a biometric option that does nothing would
@@ -143,12 +167,59 @@ fun PasswirdApp(
                 biometricAvailable = false,
                 onBiometricUnlock = {},
                 onPassphraseUnlock = { passphrase ->
-                    scope.launch { unlockController.unlockWithPassphrase(passphrase) }
+                    scope.launch {
+                        unlockController.unlockWithPassphrase(passphrase)
+                        vaultState = container.repository.currentState()
+                    }
                 },
                 onUseRecoveryKey = {},
             )
-        } else {
-            UnlockedRoot(container = container)
+
+            is VaultState.FirstRun, is VaultState.FirstRunRemoteUnchecked ->
+                OnboardingRoot(
+                    step = step,
+                    controller = onboarding,
+                    remoteUnchecked = state is VaultState.FirstRunRemoteUnchecked,
+                    onCreated = { scope.launch { vaultState = container.repository.currentState() } },
+                )
+
+            // Everything below is a recovery situation. None of them may offer to create a
+            // vault, so none of them routes to onboarding.
+            is VaultState.RemoteVaultAvailable -> RecoveryRoot(
+                headline = "Your vault is in Google Drive",
+                detail = "This device has no copy yet. Restore it, then unlock with your " +
+                    "passphrase or recovery key — Google cannot open it for you.",
+                onRestore = { onboarding.startRestore() },
+                step = step,
+                controller = onboarding,
+            )
+
+            is VaultState.VaultRecoveryAvailable -> RecoveryRoot(
+                headline = "A recoverable copy was found",
+                detail = "An upload was interrupted before it finished. Your previous vault " +
+                    "is intact and can be restored — nothing has been lost.",
+                onRestore = { onboarding.startRestore() },
+                step = step,
+                controller = onboarding,
+            )
+
+            is VaultState.RecoveryRequired -> RecoveryRoot(
+                headline = "This device needs your recovery key",
+                detail = "This device has held a vault, but no copy is available right now. " +
+                    "We won't create a new one over it.",
+                onRestore = { onboarding.startRestore() },
+                step = step,
+                controller = onboarding,
+            )
+
+            is VaultState.Corrupted -> RecoveryRoot(
+                headline = "This copy of your vault is damaged",
+                detail = "Your passphrase is not the problem. Your copy in Google Drive is " +
+                    "likely unaffected, and this copy will not be overwritten.",
+                onRestore = { onboarding.startRestore() },
+                step = step,
+                controller = onboarding,
+            )
         }
     }
 }
