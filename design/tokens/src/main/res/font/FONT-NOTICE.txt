@@ -1,0 +1,30 @@
+IBM Plex Sans and IBM Plex Mono
+===============================
+
+Source:    https://github.com/IBM/plex
+Copyright: Copyright (c) 2017 IBM Corp. with Reserved Font Name "Plex"
+Licence:   SIL Open Font License, Version 1.1
+           https://scripts.sil.org/OFL
+
+Files (renamed only, contents unmodified):
+
+  plex_sans_light.ttf    <- IBMPlexSans-Light.ttf
+  plex_sans_regular.ttf  <- IBMPlexSans-Regular.ttf
+  plex_sans_medium.ttf   <- IBMPlexSans-Medium.ttf
+  plex_mono_regular.ttf  <- IBMPlexMono-Regular.ttf
+  plex_mono_medium.ttf   <- IBMPlexMono-Medium.ttf
+
+Why these are bundled rather than fetched
+-----------------------------------------
+A webfont request on launch would tell a CDN each time the user opens their password
+manager. Bundling costs about 950 KB in the APK and leaks nothing.
+
+Why Plex rather than Inter or Roboto
+------------------------------------
+Partly character: Roboto reads as stock Android, which this product's design direction
+explicitly rules out, and Inter is ubiquitous enough to be invisible.
+
+Mostly, though, it is functional. Plex Mono disambiguates the glyph pairs that matter when
+someone is reading a generated password aloud or typing one into a console: 0 against O,
+and 1 against l against I. For the component that renders secrets, that is a correctness
+requirement, not a stylistic preference.

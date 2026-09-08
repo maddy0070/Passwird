@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      A deliberately bare platform theme. All visual styling comes from PasswirdTheme in
+      Compose; this exists only so the window background matches during cold start and the
+      launch does not flash a white frame before the vault's dark ground appears.
+    -->
+    <style name="Theme.Passwird" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/ground</item>
+        <item name="android:statusBarColor">@color/ground</item>
+        <item name="android:navigationBarColor">@color/ground</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

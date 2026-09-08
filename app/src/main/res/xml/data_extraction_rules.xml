@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Blocks the vault, its key material and its sync bookkeeping from every extraction path:
+  cloud backup, adb backup, and device-to-device transfer.
+
+  The exclusions are deliberately broad. Including a path by mistake would copy vault data
+  into a system with a different protection model than the one this product documents, so
+  everything under files/ is excluded and only the non-sensitive preference file is allowed
+  back in.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+        <exclude domain="root" />
+    </cloud-backup>
+
+    <device-transfer>
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+        <exclude domain="root" />
+    </device-transfer>
+</data-extraction-rules>

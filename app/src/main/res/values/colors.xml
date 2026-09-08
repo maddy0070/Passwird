@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors DarkColors.ground. The only colour defined outside design/tokens, and only
+         because the platform needs a window background before Compose starts. -->
+    <color name="ground">#0A0C0E</color>
+</resources>

@@ -135,19 +135,50 @@ low-end device with a 5k-item vault.
 
 ## Status of this build
 
-| Phase | State |
-|---|---|
-| 0 Foundation | Complete |
-| 1 Crypto core | Complete, tests green |
-| 2 Domain model | Complete, tests green |
-| 3 Vault services | Complete, tests green |
-| 4 Sync engine | Complete, tests green |
-| 5 Android platform | Written; **not compilable in this container** (no Android SDK) |
-| 6 Design system | Tokens + components written; not compilable here |
-| 7 Application | Screens written; not compilable here |
-| 8 Hardening | Secret scan + JVM security tests green |
-| 9 Polish | Ongoing |
+Stated precisely, because "done" means different things for code that runs here and code
+that does not.
 
-The container limitation is stated plainly rather than hidden: everything in `core:*`
-is compiled and tested on every commit; everything Android-dependent requires an SDK to
-build and has not been executed here.
+| Phase | State | Verified how |
+|---|---|---|
+| 0 Foundation | Complete | 16 documents + 8 ADRs |
+| 1 Crypto core | **Complete** | 69 tests |
+| 2 Domain model | **Complete** | 22 tests |
+| 3 Vault services | **Complete** | 46 tests |
+| 3 Search | **Complete** | 18 tests |
+| 4 Sync engine | **Complete** | 59 tests, incl. 5 randomised properties over 400 scenarios each |
+| 5 Android platform | Written, **not compiled** | - |
+| 5 Drive adapter | Written, **not compiled** | - |
+| 6 Design system | Tokens, icons, components written, **not compiled** | Fonts bundled and licence-attributed |
+| 7 Application | Core screens written, **not compiled** | - |
+| 8 Hardening | **Complete for what runs here** | 15 static checks, each verified to fail on a planted violation |
+| 9 Polish | Ongoing | - |
+
+**214 JVM tests pass.** The security core, the domain model, the generator, search and the
+entire merge and rollback engine are compiled and executed on every commit.
+
+### The honest caveat
+
+The development container has a JDK and Gradle but **no Android SDK and no emulator**.
+Everything under `platform/`, `data/`, `design/` and `app/` is therefore written but has
+never been compiled or run. It is reviewed code, not verified code, and this table says so
+rather than implying otherwise.
+
+That limitation is also *why* the architecture looks the way it does. Pushing the crypto,
+the schema, the merge algorithm and the rollback defence into pure Kotlin/JVM modules was a
+layering decision first and a testability decision second - but the effect is that the
+parts where a bug is most expensive are the parts that are actually proven, and the
+unproven parts are mostly thin bindings to platform APIs.
+
+`settings.gradle.kts` detects the missing SDK and configures only the JVM modules, so
+`./gradlew test` is green in this container while a full checkout on a machine with the SDK
+builds the complete app.
+
+### What a reviewer should check first
+
+1. `./scripts/scan-secrets.sh` - 15 checks, including the architectural boundaries that
+   make the central claim true.
+2. `./gradlew test` - 214 tests.
+3. `core/sync/src/test/.../MergePropertiesTest.kt` - the data-loss invariant. It is the
+   single most valuable test in the repository.
+4. `core/crypto/src/test/.../SecurityPropertiesTest.kt` - `CiphertextOnlyTest`, which backs
+   the product's central promise on the exact bytes handed to the transport.

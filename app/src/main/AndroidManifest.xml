@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      The complete permission set. INTERNET is for Drive sync only; the app is fully
+      functional with it revoked. Notifications, contacts, storage, location and camera are
+      not requested at all - see docs/11-privacy-model.md section 6.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <uses-feature android:name="android.hardware.fingerprint" android:required="false" />
+
+    <application
+        android:name=".PasswirdApplication"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/Theme.Passwird"
+        android:supportsRtl="true"
+
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:hasFragileUserData="false"
+
+        tools:targetApi="34">
+
+        <!--
+          allowBackup=false is not optional here. Android's automatic backup would otherwise
+          copy app-private files - including the encrypted vault, the sync watermark and the
+          Keystore-wrapped account record - to Google's servers under a different protection
+          model than the one this product documents. dataExtractionRules additionally blocks
+          adb backup and device-to-device transfer for the same paths, so the guarantees in
+          docs/02-threat-model.md hold on the extraction paths too.
+        -->
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize"
+            android:excludeFromRecents="false">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          No other exported component exists. No custom URL scheme accepts vault data, no
+          content provider is published, and no service is exposed - so there is no IPC
+          surface for another app to reach.
+        -->
+
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            tools:node="remove" />
+
+    </application>
+</manifest>
