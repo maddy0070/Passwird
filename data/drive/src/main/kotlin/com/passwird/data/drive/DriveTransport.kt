@@ -4,9 +4,11 @@ import com.google.api.client.googleapis.json.GoogleJsonResponseException
 import com.google.api.client.http.ByteArrayContent
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.model.File as DriveFile
+import com.passwird.crypto.VaultContainer
 import com.passwird.sync.BackupRef
 import com.passwird.sync.RemoteObject
 import com.passwird.sync.RemoteStat
+import com.passwird.sync.RemoteVaultState
 import com.passwird.sync.TransportError
 import com.passwird.sync.VaultTransport
 import java.io.ByteArrayOutputStream
@@ -58,14 +60,21 @@ class DriveTransport(
      *
      *  1. Upload to a temporary name. A connection dropped mid-transfer can then only
      *     damage a file nothing points at.
-     *  2. **Download it back and check it parses and authenticates.** This catches a
+     *  2. **Download it back, and check it parses and authenticates.** This catches a
      *     corrupted transfer that Drive nonetheless accepted — the failure mode that
      *     otherwise stays invisible until a new device finds the only copy unreadable.
      *  3. Copy the current live vault into `backups/`.
      *  4. Re-check the generation, and abort if the remote moved while we worked.
-     *  5. Rename the temp file over the live one.
+     *  5. **Rename** the live vault aside, then rename the temp into its place, then delete
+     *     the superseded one.
      *
-     * A failure at any point leaves the previous `vault.pwv` intact and valid.
+     * Step 5 is the shape it is because of a data-loss finding: it previously deleted the
+     * live vault before renaming the replacement, leaving a window with no `vault.pwv` at
+     * all. See the comment at that step, and [com.passwird.sync.VaultPublisher] for the same
+     * sequence under test.
+     *
+     * A failure at any point leaves a readable vault reachable, and never leaves the folder
+     * looking like a new user's.
      */
     override suspend fun upload(bytes: ByteArray, expectedGeneration: String?): RemoteStat = call {
         val drive = driveProvider()
@@ -80,7 +89,8 @@ class DriveTransport(
             throw TransportError.GenerationMismatch(expectedGeneration, actualGeneration)
         }
 
-        val tempName = ".tmp-${System.nanoTime()}-${(0..0xFFFF).random().toString(16)}.pwv"
+        val stamp = "${System.nanoTime()}-${(0..0xFFFF).random().toString(16)}"
+        val tempName = "$TEMP_PREFIX$stamp.pwv"
         val temp = drive.files().create(
             DriveFile().apply {
                 name = tempName
@@ -100,12 +110,32 @@ class DriveTransport(
                 throw TransportError.GenerationMismatch(expectedGeneration, stillExpected)
             }
 
-            existing?.let { drive.files().delete(it.id).execute() }
+            // The live name is handed over by rename, never released.
+            //
+            // This used to delete the live vault and only then rename the replacement into
+            // place. Between those two calls no object named vault.pwv existed, and
+            // VaultRepository maps a missing vault to NoVault - the signal onboarding uses to
+            // offer to create a new one. A process death or dropped connection in that window
+            // could therefore lead a user to publish a fresh empty vault over their real one.
+            // Reported as section F-2 of docs/14-production-readiness-review.md; the ordering
+            // below is the same one VaultPublisher implements and VaultPublisherTest proves
+            // correct by interrupting it at every step.
+            val supersededName = "$SUPERSEDED_PREFIX$stamp.pwv"
+            existing?.let { current ->
+                drive.files()
+                    .update(current.id, DriveFile().apply { name = supersededName })
+                    .execute()
+            }
 
             val published = drive.files()
                 .update(temp.id, DriveFile().apply { name = VAULT_FILE_NAME })
                 .setFields(FILE_FIELDS)
                 .execute()
+
+            // Only now that the replacement is live and verified. A failure here leaves a
+            // superseded object behind, which `probe` reads as "interrupted" rather than
+            // "new user" - the second, independent defence.
+            existing?.let { current -> runCatching { drive.files().delete(current.id).execute() } }
 
             pruneBackups(drive, folderId)
             statOf(published)
@@ -113,6 +143,40 @@ class DriveTransport(
             runCatching { drive.files().delete(temp.id).execute() }
             throw error
         }
+    }
+
+    /**
+     * Whether this Drive folder holds a vault, has held one, or has never held one.
+     *
+     * The second, independent defence against the §F-2 data-loss path. Even if the ordering
+     * in [upload] were somehow defeated and the live object went missing, a folder containing
+     * a staged upload, a superseded vault or a backup is **not** a new user's folder, and the
+     * app must route it to recovery rather than to onboarding.
+     *
+     * A folder that does not exist at all is the one honest [RemoteVaultState.Empty]: nothing
+     * has ever been written here.
+     */
+    override suspend fun probe(): RemoteVaultState = call {
+        val drive = driveProvider()
+        val folderId = findFolder(drive) ?: return@call RemoteVaultState.Empty
+
+        val names = drive.files().list()
+            .setQ("'$folderId' in parents and trashed = false")
+            .setFields("files(name)")
+            .setSpaces("drive")
+            .execute()
+            .files
+            ?.map { it.name }
+            .orEmpty()
+
+        if (VAULT_FILE_NAME in names) return@call RemoteVaultState.Present
+
+        // `backups` is a folder, and its presence is itself evidence: it is only ever created
+        // when a vault is first replaced.
+        val evidence = names.filter {
+            it.startsWith(TEMP_PREFIX) || it.startsWith(SUPERSEDED_PREFIX) || it == BACKUPS_FOLDER
+        }
+        if (evidence.isEmpty()) RemoteVaultState.Empty else RemoteVaultState.Interrupted(evidence.sorted())
     }
 
     override suspend fun listBackups(): List<BackupRef> = call {
@@ -142,10 +206,22 @@ class DriveTransport(
      * Deliberately an extra fetch. Discovering a corrupted upload six months later, on a
      * new device, when it is the only copy left, is not a trade worth making to save one
      * request.
+     *
+     * Checks two different things, because they fail differently. Byte equality catches a
+     * transfer Drive mangled. **Parsing the container catches a fault in our own
+     * serialisation** — bytes that survived the network perfectly and are still not a vault.
+     * The doc comment above claimed both from the beginning; only the first was implemented,
+     * which was recorded as §B-6 of the production-readiness review.
      */
     private fun verifyRoundTrip(drive: Drive, fileId: String, expected: ByteArray) {
         val readBack = readFile(drive, fileId)
         if (!readBack.contentEquals(expected)) throw TransportError.CorruptUpload()
+
+        // Structural parse with every declared length bounds-checked. Cheap - the bytes are
+        // already in memory - and it is the difference between "Drive stored what we sent"
+        // and "what we sent is openable".
+        runCatching { VaultContainer.parse(readBack) }
+            .onFailure { throw TransportError.CorruptUpload() }
     }
 
     private fun readFile(drive: Drive, fileId: String): ByteArray {
@@ -320,6 +396,8 @@ class DriveTransport(
         const val FOLDER_NAME = "Passwird"
         const val BACKUPS_FOLDER = "backups"
         const val VAULT_FILE_NAME = "vault.pwv"
+        const val TEMP_PREFIX = ".tmp-"
+        const val SUPERSEDED_PREFIX = "superseded-"
         const val README_NAME = "README.txt"
         const val BACKUP_PREFIX = "vault-"
         const val MIME_FOLDER = "application/vnd.google-apps.folder"
@@ -328,3 +406,18 @@ class DriveTransport(
         const val FILE_FIELDS = "id,name,size,modifiedTime,createdTime,headRevisionId,version"
     }
 }
+
+/**
+ * Builds a transport for the currently signed-in account.
+ *
+ * [DriveTransport]'s own KDoc says this class is "the only place in the product that knows
+ * Google exists" — and its constructor contradicted that, because `driveProvider` names
+ * `Drive` in its type, forcing every caller onto Google's classpath. The composition root
+ * could not compile without it.
+ *
+ * This factory is what makes the claim true: the app module names neither `Drive` nor any
+ * other Google type, and `data:drive` keeps its dependency `implementation`-scoped rather
+ * than leaking it upward as `api`.
+ */
+fun driveTransportFor(accountManager: GoogleAccountManager): DriveTransport =
+    DriveTransport(driveProvider = { accountManager.drive() })

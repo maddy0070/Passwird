@@ -6,13 +6,19 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
 import com.passwird.design.tokens.PasswirdTheme
+import com.passwird.platform.secure.AppLockController
 import com.passwird.platform.secure.ScreenPrivacy
+import com.passwird.vault.lock.AutoLockSettings
 import com.passwird.vaultapp.ui.UnlockScreen
-import com.passwird.vaultapp.ui.UnlockUiState
+import kotlinx.coroutines.launch
 
 /**
  * The single activity.
@@ -21,15 +27,19 @@ import com.passwird.vaultapp.ui.UnlockUiState
  * fragment host — a small constraint that follows directly from binding biometrics to a
  * real `CryptoObject` rather than to a boolean.
  *
- * Two responsibilities live here and nowhere else:
+ * Three responsibilities live here and nowhere else:
  *
  *  1. **Applying `FLAG_SECURE` before the first frame**, so no window is ever briefly
  *     capturable.
- *  2. **Feeding user interaction to the auto-lock policy.** Any touch postpones the
- *     inactivity timer, which is why the whole tree sits inside a `pointerInput` that
- *     observes without consuming.
+ *  2. **Feeding user interaction to the auto-lock policy**, from both the platform callback
+ *     and the Compose pointer stream.
+ *  3. **Handing the composition the real object graph.** Until this existed, `PasswirdApp`
+ *     rendered a lock screen with five empty callbacks and no route to a vault.
  */
 class MainActivity : FragmentActivity() {
+
+    private lateinit var lockController: AppLockController
+    private lateinit var unlockController: UnlockController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,16 +48,51 @@ class MainActivity : FragmentActivity() {
         // could capture for the recents thumbnail without the flag set.
         ScreenPrivacy.apply(this)
 
+        val container = (application as PasswirdApplication).container
+        unlockController = UnlockController(container.repository)
+
+        lockController = AppLockController(
+            context = this,
+            scope = lifecycleScope,
+            settings = AutoLockSettings(),
+            onLock = {
+                // Locking zeroises the VEK and drops the decrypted document, which is what
+                // makes the lock screen a real boundary rather than a painted one.
+                lifecycleScope.launch { container.repository.lock() }
+            },
+        ).also { it.start() }
+
         setContent {
             PasswirdTheme {
-                PasswirdApp(onUserInteraction = ::onUserInteraction)
+                PasswirdApp(
+                    container = container,
+                    unlockController = unlockController,
+                    onUserInteraction = lockController::onUserInteraction,
+                )
             }
         }
     }
 
-    private fun onUserInteraction() {
-        // Wired to AppLockController by the composition root. Kept as a method so the
-        // interaction signal has one owner rather than being scattered through screens.
+    override fun onDestroy() {
+        lockController.stop()
+        super.onDestroy()
+    }
+
+    /**
+     * The framework's own idle signal.
+     *
+     * This was a private method of the same name, which shadowed `Activity.onUserInteraction`
+     * rather than overriding it — so the framework never called it, and the only interaction
+     * the auto-lock timer would ever have seen was the Compose pointer observer below. Key
+     * events, trackball input and switch access would all have counted as idleness while the
+     * user was actively working.
+     *
+     * Overriding it properly makes the platform signal and the Compose signal feed the same
+     * policy.
+     */
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        if (::lockController.isInitialized) lockController.onUserInteraction()
     }
 }
 
@@ -60,10 +105,16 @@ class MainActivity : FragmentActivity() {
  */
 @Composable
 fun PasswirdApp(
+    container: PasswirdContainer,
+    unlockController: UnlockController,
     onUserInteraction: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = PasswirdTheme.colors
+    val scope = rememberCoroutineScope()
+
+    val vault by container.repository.vault.collectAsState()
+    val unlockState by unlockController.state.collectAsState()
 
     Box(
         modifier = modifier
@@ -80,14 +131,24 @@ fun PasswirdApp(
                 }
             },
     ) {
-        // Wired to VaultRepository.vault in the real composition root: a null vault renders
-        // the lock screen, and there is deliberately no route past it.
-        UnlockScreen(
-            state = UnlockUiState.Ready,
-            biometricAvailable = true,
-            onBiometricUnlock = {},
-            onPassphraseUnlock = {},
-            onUseRecoveryKey = {},
-        )
+        // A null vault is a locked vault, and there is deliberately no route past this
+        // branch — the unlocked tree is not composed at all while locked, so no screen that
+        // could render a credential exists to be navigated to by mistake.
+        if (vault == null) {
+            UnlockScreen(
+                state = unlockState,
+                // Biometric enrolment is a later step; the passphrase path is the one that
+                // must work first, and claiming a biometric option that does nothing would
+                // be exactly the fake affordance this product avoids.
+                biometricAvailable = false,
+                onBiometricUnlock = {},
+                onPassphraseUnlock = { passphrase ->
+                    scope.launch { unlockController.unlockWithPassphrase(passphrase) }
+                },
+                onUseRecoveryKey = {},
+            )
+        } else {
+            UnlockedRoot(container = container)
+        }
     }
 }

@@ -116,8 +116,30 @@ jobs:
       - name: Assemble debug
         run: ./gradlew --no-daemon assembleDebug
 
+      # `NewApi` is the check that matters most here. Two real crashes on Android 8-10 were
+      # found by it on the first run - a Keystore call and an exception type, both added in
+      # API 28+ with minSdk 26 - and neither was visible by reading the code.
       - name: Lint
         run: ./gradlew --no-daemon lint
+
+      - name: Assemble release (R8)
+        run: ./gradlew --no-daemon assembleRelease
+
+      # scan-secrets.sh reads source; the claim made to users is about the artifact they
+      # install. These scan the built APKs: secrets, exported components, backup flags,
+      # permissions, TLS-disabling helpers and analytics SDKs.
+      - name: Scan the debug APK
+        run: python3 scripts/scan-apk.py app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Scan the release APK
+        run: python3 scripts/scan-apk.py app/build/outputs/apk/release/app-release-unsigned.apk --release
+
+      - name: Upload the debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: passwird-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
 
   verify-ciphertext-only:
     name: Verify nothing but ciphertext leaves the device

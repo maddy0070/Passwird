@@ -12,6 +12,15 @@ import com.passwird.platform.secure.ScreenPrivacy
  */
 class PasswirdApplication : Application() {
 
+    /**
+     * The object graph, built once per process.
+     *
+     * Lazy so that Keystore work — which can be slow on first run, and which must not run on
+     * the main thread during `onCreate` — happens when the first screen actually needs a
+     * vault rather than during application startup.
+     */
+    val container: PasswirdContainer by lazy { PasswirdContainer(this) }
+
     override fun onCreate() {
         super.onCreate()
 

@@ -14,6 +14,7 @@ import com.passwird.search.SearchIndex
 import com.passwird.search.SearchResult
 import com.passwird.sync.CryptoVaultSealer
 import com.passwird.sync.SyncEngine
+import com.passwird.sync.RemoteVaultState
 import com.passwird.sync.SyncOutcome
 import com.passwird.sync.SyncStateStore
 import com.passwird.sync.VaultTransport
@@ -234,6 +235,21 @@ class VaultRepository(
         searchIndex = SearchIndex.build(document)
     }
 
+    /**
+     * What the remote store holds, for callers deciding whether a user is genuinely new.
+     *
+     * Separated from [unlock] deliberately: unlocking must work offline, so it can never
+     * depend on a network round trip. This is the question onboarding has to ask *before*
+     * offering to create a vault, and it is allowed to be slow and allowed to fail.
+     *
+     * A failure is reported as [RemoteVaultState.Interrupted], not [RemoteVaultState.Empty].
+     * "We could not reach Drive" and "Drive has nothing" must never collapse into the same
+     * answer when the action that follows is *create a new vault*.
+     */
+    suspend fun remoteVaultState(): RemoteVaultState =
+        runCatching { storage.transport().probe() }
+            .getOrElse { RemoteVaultState.Interrupted(emptyList()) }
+
     /** Only reachable from the E-17 / E-18 screen, after the user has explicitly chosen it. */
     suspend fun forcePublishLocal(): SyncOutcome {
         val engine = syncEngine ?: return SyncOutcome.UpToDate
@@ -251,7 +267,16 @@ sealed interface UnlockResult {
     /** E-01. */
     data object WrongSecret : UnlockResult
 
-    /** E-14: nothing on this device yet. */
+    /**
+     * E-14: nothing on this device yet.
+     *
+     * **Not a licence to offer onboarding.** This says only that this device holds no vault
+     * file — which is also true immediately after an interrupted publish, after a partial
+     * restore, and after a Keystore loss. Creating a vault on that basis can overwrite a real
+     * one. Callers must consult [VaultRepository.remoteVaultState] and the local
+     * `hasEvidenceOfVault` before treating a user as new; see §F-2 of
+     * `docs/14-production-readiness-review.md`.
+     */
     data object NoVault : UnlockResult
 
     /** E-20 / E-29: the passphrase was right but the data is damaged. */

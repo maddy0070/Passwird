@@ -95,16 +95,29 @@ class KeystoreKeyManager(
 
         return try {
             generate(builder.build())
-        } catch (_: StrongBoxUnavailableException) {
-            // Plenty of devices advertise the API without the hardware. Falling back to the
-            // TEE is still hardware-backed and far better than refusing to offer biometrics.
-            createBiometricKey(useStrongBox = false)
-        } catch (e: IllegalStateException) {
-            throw KeystoreFailure.NoSecureLockScreen().initCause(e) as KeystoreFailure
         } catch (e: Exception) {
-            throw KeystoreFailure.Unavailable(e)
+            // Plenty of devices advertise StrongBox without the hardware. Falling back to the
+            // TEE is still hardware-backed and far better than refusing to offer biometrics.
+            //
+            // The type cannot be named in a `catch` clause, which is how this was written
+            // first: `StrongBoxUnavailableException` arrived in API 28 and minSdk is 26, so
+            // on Android 8.0 and 8.1 the runtime would throw NoClassDefFoundError trying to
+            // resolve the catch type — turning a graceful fallback into a hard crash on the
+            // oldest devices we support. Testing the type behind an SDK_INT guard keeps the
+            // class reference out of reach on those versions.
+            if (useStrongBox && isStrongBoxUnavailable(e)) {
+                return createBiometricKey(useStrongBox = false)
+            }
+            when (e) {
+                is IllegalStateException ->
+                    throw KeystoreFailure.NoSecureLockScreen().initCause(e) as KeystoreFailure
+                else -> throw KeystoreFailure.Unavailable(e)
+            }
         }
     }
+
+    private fun isStrongBoxUnavailable(error: Throwable): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && error is StrongBoxUnavailableException
 
     /**
      * Creates the device-bound key used for pre-unlock storage.

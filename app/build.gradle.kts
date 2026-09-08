@@ -40,10 +40,29 @@ android {
     kotlinOptions { jvmTarget = "17" }
 
     packaging {
-        resources.excludes += setOf(
-            "META-INF/DEPENDENCIES", "META-INF/LICENSE", "META-INF/LICENSE.txt",
-            "META-INF/NOTICE", "META-INF/NOTICE.txt", "META-INF/*.kotlin_module",
-        )
+        resources {
+            // Build metadata that several Google API client jars each carry a copy of. Two
+            // copies of `INDEX.LIST` is what actually broke the first real assembleDebug.
+            // Dropping them is safe: nothing reads them at runtime on Android.
+            excludes += setOf(
+                "META-INF/DEPENDENCIES",
+                "META-INF/INDEX.LIST",
+                "META-INF/*.kotlin_module",
+                "META-INF/versions/**/module-info.class",
+            )
+            // Signature files from signed upstream jars. They must go, because the APK is
+            // re-signed as a whole and a stale per-jar signature is invalid by definition.
+            excludes += setOf("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
+
+            // Licences and notices are **merged, not dropped**. The previous block excluded
+            // them outright, which is the common Android recipe and quietly strips the
+            // attribution that Apache-2.0 §4(d) requires us to ship. Concatenating keeps
+            // every notice in the APK.
+            merges += setOf(
+                "META-INF/LICENSE", "META-INF/LICENSE.txt", "META-INF/LICENSE.md",
+                "META-INF/NOTICE", "META-INF/NOTICE.txt", "META-INF/NOTICE.md",
+            )
+        }
     }
 }
 

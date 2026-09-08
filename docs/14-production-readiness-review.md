@@ -11,6 +11,16 @@ One sentence governs everything below:
 
 > **No Android code in this repository has ever been compiled or executed.**
 
+> **Superseded 2026-09-08, in part.** An Android SDK was installed and the app now **compiles,
+> lints and produces both a debug and a release APK**. That first build found seven real
+> defects, three of them security defects that disable a control while leaving an app that
+> looks like it works. Nothing has been *installed or launched* — there is no device and no
+> KVM — so every on-device claim below still stands. The full record, with evidence and the
+> updated per-subsystem statuses, is in
+> [`16-android-verification-gate.md`](16-android-verification-gate.md). The original text is
+> left intact below rather than edited, because the argument it makes is exactly what the
+> build then demonstrated.
+
 There is no Android SDK in the development environment. `settings.gradle.kts` detects this
 and configures only the pure-JVM modules, which is why `./gradlew test` is green. That green
 covers `core:crypto`, `core:model`, `core:vault`, `core:search` and `core:sync` — and
@@ -273,6 +283,10 @@ strengthen it to `VaultContainer.parse` plus an AEAD verification, or correct th
 **Recommendation: strengthen it.** The extra cost is a parse of bytes already in memory, and
 the failure it would catch is the unrecoverable kind.
 
+> **Strengthened 2026-09-08.** `verifyRoundTrip` now parses the container as well as
+> comparing bytes, so a fault in our own serialisation is caught before it becomes the only
+> copy. Never executed against Drive.
+
 ### B-7 · Non-findings worth recording
 
 Checked and found correct, listed so a later reviewer does not re-derive them:
@@ -530,6 +544,21 @@ the top of their real one.
    not a *first-run* state, and must route to the integrity screen.
 
 Do both. Item 2 is the one that prevents data loss even if item 1 is somehow defeated.
+
+> **Both implemented, 2026-09-08.** The publish sequence now lives in
+> `core:sync/VaultPublisher.kt` as pure JVM logic so it can be interrupted at every step
+> under test: `VaultPublisherTest` runs 13 tests, including one that fails the publish at
+> **each** of its operations in turn and asserts the store never reports itself empty and
+> always leaves a recoverable vault. One test reproduces the original delete-then-rename
+> ordering and shows it producing exactly the unrecoverable state, so the suite is known to
+> be testing something.
+>
+> `DriveTransport.upload` now follows the same ordering, and `VaultTransport.probe()`
+> returns `Present` / `Interrupted` / `Empty` — with an unreachable Drive reported as
+> `Interrupted`, never `Empty`, because "we could not reach Drive" and "Drive has nothing"
+> must not collapse into one answer when the next action is *create a new vault*.
+> `NoVaultIsEarnedTest` covers the repository-level contract. The Drive half is
+> **IMPLEMENTED BUT ENVIRONMENT-UNVERIFIED**: no account, no device.
 
 ### F-3 · Round-trip verification does not verify what it claims
 

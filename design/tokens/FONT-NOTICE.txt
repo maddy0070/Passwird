@@ -1,6 +1,11 @@
 IBM Plex Sans and IBM Plex Mono
 ===============================
 
+This notice sits beside the module rather than in `src/main/res/font/`, where it started.
+Android's resource merger accepts only .xml, .ttf, .ttc and .otf under res/font/ and fails
+the build on anything else — the first genuine error the first real Android compile produced.
+The fonts it describes are still in that directory; only the notice moved.
+
 Source:    https://github.com/IBM/plex
 Copyright: Copyright (c) 2017 IBM Corp. with Reserved Font Name "Plex"
 Licence:   SIL Open Font License, Version 1.1

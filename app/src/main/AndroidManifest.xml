@@ -13,8 +13,15 @@
 
     <uses-feature android:name="android.hardware.fingerprint" android:required="false" />
 
+    <!--
+      Fully-qualified class names, deliberately. The namespace is `com.passwird` but the
+      classes live in `com.passwird.vaultapp`, so the shorthand `.PasswirdApplication`
+      resolved to `com.passwird.PasswirdApplication` - a class that does not exist. The app
+      would have died with ClassNotFoundException before its first frame. Lint's MissingClass
+      check caught it on the first run; nothing else would have, short of launching the app.
+    -->
     <application
-        android:name=".PasswirdApplication"
+        android:name="com.passwird.vaultapp.PasswirdApplication"
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -38,7 +45,7 @@
         -->
 
         <activity
-            android:name=".MainActivity"
+            android:name="com.passwird.vaultapp.MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
@@ -57,10 +64,19 @@
           surface for another app to reach.
         -->
 
-        <provider
-            android:name="androidx.startup.InitializationProvider"
-            android:authorities="${applicationId}.androidx-startup"
-            tools:node="remove" />
+        <!--
+          androidx.startup's InitializationProvider is deliberately NOT removed.
+
+          It was previously stripped with tools:node="remove", which is common advice for
+          trimming startup providers - and here it would have silently disabled a security
+          control. lifecycle-process registers ProcessLifecycleInitializer through that
+          provider, and AppLockController's lock-on-background depends on
+          ProcessLifecycleOwner receiving events. With the provider removed, the observer is
+          registered against a lifecycle that never dispatches: the app looks fine, and the
+          vault simply never locks when backgrounded.
+
+          The provider is not exported and adds one class to startup. That is the whole cost.
+        -->
 
     </application>
 </manifest>

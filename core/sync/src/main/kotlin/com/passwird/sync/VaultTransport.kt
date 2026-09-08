@@ -17,6 +17,22 @@ interface VaultTransport {
     /** Metadata for the stored vault, or null if none exists yet. */
     suspend fun stat(): RemoteStat?
 
+    /**
+     * Distinguishes *no vault has ever existed* from *the vault is missing right now*.
+     *
+     * [stat] returning null cannot tell those apart, and the difference decides whether the
+     * app offers to create a vault. An interrupted publish, a partially restored folder or a
+     * half-deleted one all present as "no vault" to `stat`, and treating any of them as a new
+     * user invites publishing an empty vault over a real one — see
+     * `docs/14-production-readiness-review.md` §F-2 and [VaultPublisher].
+     *
+     * The default is the conservative reading for a transport that cannot enumerate: a vault
+     * is [RemoteVaultState.Present] or the state is unknown, never provably [RemoteVaultState.Empty].
+     * A transport that *can* list its objects must override this.
+     */
+    suspend fun probe(): RemoteVaultState =
+        if (stat() != null) RemoteVaultState.Present else RemoteVaultState.Interrupted(emptyList())
+
     /** Fetches the current bytes together with the generation they were read at. */
     suspend fun download(): RemoteObject
 

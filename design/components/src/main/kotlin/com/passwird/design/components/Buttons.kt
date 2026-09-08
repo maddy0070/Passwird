@@ -3,6 +3,7 @@ package com.passwird.design.components
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -269,7 +270,7 @@ internal fun Modifier.clickableRow(
     role: Role,
     interactionSource: MutableInteractionSource,
     onClick: () -> Unit,
-): Modifier = androidx.compose.foundation.clickable(
+): Modifier = clickable(
     interactionSource = interactionSource,
     // No ripple: this system expresses press with opacity, and a ripple would put a
     // Material fingerprint on every tap.

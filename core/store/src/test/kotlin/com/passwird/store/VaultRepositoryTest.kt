@@ -4,6 +4,7 @@ import com.passwird.crypto.SlotType
 import com.passwird.model.ItemContent
 import com.passwird.model.Secret
 import com.passwird.model.VaultItem
+import com.passwird.sync.RemoteVaultState
 import java.io.File
 import java.nio.file.Files
 import java.util.UUID
@@ -293,4 +294,69 @@ private fun ByteArray.containsPlaintext(value: String): Boolean {
         return true
     }
     return false
+}
+
+/**
+ * The §F-2 defence at the level the application actually consumes it.
+ *
+ * `UnlockResult.NoVault` is what onboarding keys off. These assert that a device or a remote
+ * store in a recoverable-but-vaultless state is never mistaken for a new user, so nothing can
+ * offer to create a vault over a real one.
+ */
+class NoVaultIsEarnedTest {
+
+    private val root: File = Files.createTempDirectory("passwird-novault").toFile()
+    private val cipher = FakeDeviceCipher()
+    private val transport = FakeTransport()
+    private val storage = FileVaultStorage(root, cipher, transport)
+
+    @AfterTest
+    fun cleanUp() {
+        root.deleteRecursively()
+    }
+
+    private fun repository() = VaultRepository(storage, Fixtures.DEVICE, clock = { Fixtures.NOW })
+
+    @Test
+    fun `a genuinely new device reports NoVault and an empty remote`() = runTest {
+        val result = Fixtures.passphrase().use { repository().unlock(it, SlotType.PASSPHRASE) }
+
+        assertIs<UnlockResult.NoVault>(result)
+        assertFalse(storage.hasEvidenceOfVault())
+        assertIs<RemoteVaultState.Empty>(repository().remoteVaultState())
+    }
+
+    @Test
+    fun `a device with sync history reports NoVault but is not a new user`() = runTest {
+        // The local half of the failure: the vault file is gone while the bookkeeping remains.
+        // `unlock` still says NoVault — it can only read the file — so the *second* signal is
+        // what has to stop onboarding.
+        storage.syncStateStore().save(com.passwird.sync.LocalSyncState(highestSeenVersion = 4))
+
+        val result = Fixtures.passphrase().use { repository().unlock(it, SlotType.PASSPHRASE) }
+
+        assertIs<UnlockResult.NoVault>(result)
+        assertTrue(
+            storage.hasEvidenceOfVault(),
+            "a device that has synced is not a new user, whatever the vault file says",
+        )
+    }
+
+    @Test
+    fun `a remote holding only a staged upload is Interrupted, never Empty`() = runTest {
+        transport.state = RemoteVaultState.Interrupted(listOf(".tmp-001.pwv"))
+
+        val state = repository().remoteVaultState()
+
+        assertIs<RemoteVaultState.Interrupted>(state)
+    }
+
+    @Test
+    fun `an unreachable remote is Interrupted, never Empty`() = runTest {
+        // "We could not reach Drive" and "Drive has nothing" must not collapse into the same
+        // answer when the next action is *create a new vault*.
+        transport.failProbe = true
+
+        assertIs<RemoteVaultState.Interrupted>(repository().remoteVaultState())
+    }
 }

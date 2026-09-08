@@ -13,6 +13,7 @@ import com.passwird.model.codec.VaultDocumentCodec
 import com.passwird.sync.BackupRef
 import com.passwird.sync.RemoteObject
 import com.passwird.sync.RemoteStat
+import com.passwird.sync.RemoteVaultState
 import com.passwird.sync.TransportError
 import com.passwird.sync.VaultTransport
 import java.io.IOException
@@ -63,6 +64,16 @@ class FakeTransport : VaultTransport {
 
     var failNextUpload: Boolean = false
     var uploads: Int = 0
+
+    /** Overrides what [probe] reports, for the NoVault-is-earned tests. */
+    var state: RemoteVaultState? = null
+    var failProbe: Boolean = false
+
+    override suspend fun probe(): RemoteVaultState {
+        if (failProbe) throw IOException("drive unreachable")
+        state?.let { return it }
+        return if (bytes != null) RemoteVaultState.Present else RemoteVaultState.Empty
+    }
 
     override suspend fun stat(): RemoteStat? =
         bytes?.let { RemoteStat(generation.toString(), it.size.toLong(), 0L) }
