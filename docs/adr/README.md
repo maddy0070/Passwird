@@ -13,3 +13,5 @@ decision → consequences (including the bad ones).
 | [0006](0006-no-sharing.md) | No vault sharing in any form | Accepted |
 | [0007](0007-no-certificate-pinning.md) | No certificate pinning for Drive | Accepted |
 | [0008](0008-no-wipe-on-failed-unlock.md) | Backoff, never wipe, on failed unlock | Accepted |
+| [0009](0009-recovery-model.md) | Recovery key as the floor; device-mediated authorization as the routine path | Accepted (design) |
+| [0010](0010-device-authorization.md) | Device authorization out of band via QR, never through Drive | Accepted (design) |

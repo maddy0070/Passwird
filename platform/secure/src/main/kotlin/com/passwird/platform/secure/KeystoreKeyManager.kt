@@ -73,7 +73,20 @@ class KeystoreKeyManager(
             .setUserAuthenticationRequired(true)
             .setInvalidatedByBiometricEnrollment(true)
 
-        builder.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG)
+        // Per-use authentication: the key is unusable until the hardware has itself seen a
+        // valid biometric for *this* operation.
+        //
+        // Two spellings, because the API changed. `setUserAuthenticationParameters` arrived
+        // in API 30 and is the one that can demand BIOMETRIC_STRONG specifically; below that
+        // the only lever is a validity duration, where -1 means "every use". minSdk is 26, so
+        // calling the newer form unguarded would throw NoSuchMethodError on Android 8 through
+        // 10 — at the moment the user enables biometrics, on a third of the install base.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            builder.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG)
+        } else {
+            @Suppress("DEPRECATION")
+            builder.setUserAuthenticationValidityDurationSeconds(-1)
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             builder.setUnlockedDeviceRequired(true)

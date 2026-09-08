@@ -67,7 +67,7 @@ quietly includes tests nobody has written is worse than a short one.
 |---|---|---|
 | `PreferencesLeakTest` | Nothing vault-derived reaches `SharedPreferences`. | Needs an instrumented run. `scan-secrets.sh` covers the static half (no vault type is written to preferences in source); the runtime half is unverified. |
 | `ClipboardPolicyTest` | Clipboard auto-clear fires, and `EXTRA_IS_SENSITIVE` is set. | Needs a device. The policy is implemented but **has never been executed**. |
-| `AtomicPublishTest` | A Drive upload interrupted mid-write never replaces a good vault with a partial one. | **The behaviour itself is not implemented.** `EncryptedLocalStore` writes atomically to local disk; the Drive transport has no staged-object-then-swap. See the production-readiness review. |
+| `AtomicPublishTest` | A Drive upload interrupted at any step never leaves the vault unreadable or absent. | Needs a fake Drive. The behaviour **is** implemented (`DriveTransport.upload` stages, reads back, archives, re-checks and renames) but has never been run, and the review identifies a window between the delete and the rename where no live vault exists. |
 
 ## 4. Property-based tests
 

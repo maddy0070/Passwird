@@ -40,7 +40,17 @@ the device. Google Drive holds a sealed copy and is treated as **hostile by defa
 13. [`13-roadmap.md`](13-roadmap.md) — phases and current build status
 14. [`research/competitive-notes.md`](research/competitive-notes.md) — findings and the
     decisions they produced
-15. [`adr/`](adr/README.md) — eight decision records
+15. [`adr/`](adr/README.md) — ten decision records
+
+**Read these two first if you are assessing what actually works:**
+
+16. [`14-production-readiness-review.md`](14-production-readiness-review.md) — every
+    subsystem classified as verified / reviewed-but-unverified / partial / missing / risk,
+    with the recovery and multi-device recommendations and the exact implementation order.
+    **The JVM core is tested; no Android code has ever been compiled.** This document is the
+    honest account of that gap.
+17. [`15-autofill-design.md`](15-autofill-design.md) — the security and privacy design that
+    must be accepted before any Autofill code is written. Deferred deliberately.
 
 ---
 
