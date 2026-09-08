@@ -1,4 +1,4 @@
-package com.passwird.vaultapp
+package com.passwird.store
 
 import com.passwird.crypto.CryptoError
 import com.passwird.crypto.KdfPolicy
@@ -15,6 +15,8 @@ import com.passwird.search.SearchResult
 import com.passwird.sync.CryptoVaultSealer
 import com.passwird.sync.SyncEngine
 import com.passwird.sync.SyncOutcome
+import com.passwird.sync.SyncStateStore
+import com.passwird.sync.VaultTransport
 import java.time.Instant
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -256,11 +258,23 @@ sealed interface UnlockResult {
     data class Damaged(val error: CryptoError) : UnlockResult
 }
 
-/** Storage and transport, injected so the repository stays testable without Android. */
+/**
+ * Storage and transport, injected so the repository stays testable without Android.
+ *
+ * That sentence used to be aspirational: this interface and [VaultRepository] both lived in
+ * the `app` module, so neither could be built — let alone tested — without an Android SDK.
+ * They now live in a pure-JVM module, which is what makes the comment true.
+ */
 interface VaultStorage {
+    /** The sealed vault container, or null when this device holds no vault yet. */
     suspend fun readVault(): ByteArray?
+
+    /** Replaces the stored vault. Must be atomic: a partial write is a destroyed vault. */
     suspend fun writeVault(bytes: ByteArray)
+
+    /** Header of the last stored version, for the hash chain. */
     suspend fun lastHeaderBytes(): ByteArray?
-    fun transport(): com.passwird.sync.VaultTransport
-    fun syncStateStore(): com.passwird.sync.SyncStateStore
+
+    fun transport(): VaultTransport
+    fun syncStateStore(): SyncStateStore
 }

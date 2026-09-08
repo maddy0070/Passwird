@@ -24,6 +24,21 @@ have compiled at all. That defect survived a full implementation phase and a fir
 because nothing ever tried to build it. Anything in this document marked *reviewed but
 unverified* is subject to exactly that failure mode.
 
+### Progress since this review was written
+
+Two rows below have changed, and the change is recorded rather than edited away, because the
+review's own argument is that claims must be traceable.
+
+`VaultStorage` had no implementation and `VaultRepository` had never been instantiated by
+anything — including a test, because both lived in the `app` module and `app` cannot compile
+without an SDK. Both now live in `core:store`, a pure-JVM module, with 30 tests. **This does
+not close A-1.** The composition root is still missing and no Android code constructs the
+repository; what changed is that the layer between them is no longer unverified.
+
+The move follows A-5: logic worth testing belongs below the Android line. `VaultStorage`'s own
+KDoc had claimed it was "injected so the repository stays testable without Android" while
+sitting in an Android module — the move is what makes that sentence true.
+
 ### Classification legend
 
 | Label | Meaning |
@@ -58,8 +73,9 @@ unverified* is subject to exactly that failure mode.
 | Google account/OAuth | **REVIEWED BUT UNVERIFIED** | Never executed |
 | Design system | **PARTIALLY IMPLEMENTED** | Tokens now contrast-checked (56 pairs). No component has ever rendered. |
 | **Composition root / DI** | **MISSING** | `PasswirdApp` renders a hard-coded `UnlockScreen` with empty callbacks |
-| **`VaultStorage` implementation** | **MISSING** | The interface exists. Nothing implements it. |
-| **`VaultRepository` construction** | **MISSING** | The class is never instantiated anywhere |
+| `VaultStorage` implementation | **VERIFIED** *(2026-09-08)* | `FileVaultStorage` — 15 tests over atomicity, at-rest sealing and the §F-2 defence. Was MISSING when this review was written. |
+| `VaultRepository` logic | **VERIFIED** *(2026-09-08)* | 15 tests: unlock, lock, persist across a lock cycle, tombstones, undo, search, sync, offline. Moved to a JVM module to make this possible. |
+| **`VaultRepository` construction by the app** | **MISSING** | Still never instantiated by any Android code |
 | **Onboarding / vault creation** | **MISSING** | There is no path by which a vault can come into existence |
 | **Recovery flow (UI)** | **MISSING** | The codec exists; nothing calls it |
 | **Device enrolment / registry** | **MISSING** | `DeviceRecord` is modelled and merges correctly; nothing ever writes one |
@@ -91,6 +107,12 @@ The product is two disconnected halves.
               │
         VaultStorage     ── no implementation exists
 ```
+
+> **Partly addressed, 2026-09-08.** `VaultStorage` now has an implementation and
+> `VaultRepository` now runs — both moved into `core:store` and covered by 30 tests. The
+> diagram above is left as written because the finding it illustrates is still open: nothing
+> in `app` constructs the repository, so the arrow from the UI to the core is still missing.
+> What changed is that the box it points at is no longer empty.
 
 `VaultRepository` is a competent 266-line class holding unlock, mutate, search and sync. It
 depends on a `VaultStorage` interface. **Nothing implements that interface, and nothing ever
@@ -594,8 +616,8 @@ Steps 1–5 are the vertical slice; nothing beyond step 5 should start until it 
 | # | Work | Done when |
 |---|---|---|
 | **1** | **Build it.** `assembleDebug` + `lint` on a machine with an SDK. Fix whatever falls out. | An APK exists and lint is clean. **This is the single most valuable action available** — it converts the entire Android layer from *unknown* to *known*. |
-| **2** | **Implement `VaultStorage`.** File-backed, over `EncryptedLocalStore`, with the Drive transport and sync-state store behind it. | The interface has exactly one implementation and it is exercised by a JVM test using a temp directory and a fake transport. |
-| **3** | **Build the composition root.** Construct `KeystoreKeyManager` → `EncryptedLocalStore` → `VaultStorage` → `VaultRepository` once, at the application level. Manual constructor injection — **no DI framework**; the graph is a dozen objects and a framework would add a compile-time dependency for no benefit. | `PasswirdApp` receives a real repository. The empty callbacks are gone. |
+| **2** | ~~**Implement `VaultStorage`.**~~ **DONE 2026-09-08.** `FileVaultStorage` in `core:store`: atomic staged writes, device-key sealing for the decrypted base and snapshot only, and `hasEvidenceOfVault()` for the §F-2 defence. | ✅ 15 tests over a temp directory and a fake transport, plus 15 over `VaultRepository` against real crypto, real files and a real sync engine. |
+| **3** | **Build the composition root.** Construct `KeystoreKeyManager` → a `DeviceCipher` over it → `FileVaultStorage` → `VaultRepository` once, at the application level. Manual constructor injection — **no DI framework**; the graph is a dozen objects and a framework would add a compile-time dependency for no benefit. The only new Android code required is a `DeviceCipher` implementation, which `KeystoreKeyManager.sealWithDeviceKey`/`openWithDeviceKey` already provides the body for. | `PasswirdApp` receives a real repository. The empty callbacks are gone. |
 | **4** | **State holders for the five existing screens.** Repository state → UI state, one holder per screen, no logic beyond mapping. | Unlock, Home, Item detail, Generator and Integrity work against a real vault. |
 | **5** | **Close the loop end-to-end.** Create a vault in a test fixture, unlock it on a device, read a credential, copy it, lock, unlock again. | **The vertical slice exists.** A-1 closes. |
 
@@ -654,9 +676,9 @@ planting a violation and confirming it fires.
 
 | Test | Asserts | Blocking because |
 |---|---|---|
-| `VaultStorageTest` | Round-trip through the real storage implementation with a fake transport | Step 2 has no meaning otherwise |
+| ~~`VaultStorageTest`~~ | Round-trip through the real storage implementation with a fake transport | **Written 2026-09-08** — `FileVaultStorageTest` and `VaultRepositoryTest`, 30 tests |
 | `AtomicPublishTest` | Publish interrupted at **every** step leaves a readable vault, and never presents as first-run | §F-2 is a data-loss path |
-| `NoVaultIsEarnedTest` | A folder with a temp object or a backup never routes to onboarding | The specific mechanism by which F-2 destroys a vault |
+| `NoVaultIsEarnedTest` | A folder with a temp object or a backup never routes to onboarding | The specific mechanism by which F-2 destroys a vault. **The local half is done** (`hasEvidenceOfVault`, 4 tests); the Drive half still needs the transport check. |
 | `KeystoreApiLevelTest` (instrumented, API 26–29) | Biometric key creation succeeds on Android 8–10 | The B-1 regression |
 | `BiometricCryptoObjectTest` (instrumented) | The key is unusable before authentication and usable after | The difference between real biometric gating and theatre |
 | `BiometricInvalidationTest` (instrumented) | Enrolling a new fingerprint invalidates the key and surfaces E-07 | An unhandled `KeyPermanentlyInvalidatedException` is a crash at unlock |

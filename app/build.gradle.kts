@@ -53,6 +53,9 @@ dependencies {
     implementation(project(":core:vault"))
     implementation(project(":core:search"))
     implementation(project(":core:sync"))
+    // Carries VaultRepository and FileVaultStorage, which used to live in this module and
+    // therefore could not be tested. `api` on its side re-exports the core types the UI needs.
+    implementation(project(":core:store"))
     implementation(project(":platform:secure"))
     implementation(project(":data:drive"))
     implementation(project(":design:tokens"))

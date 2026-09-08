@@ -51,6 +51,8 @@ quietly includes tests nobody has written is worse than a short one.
 | `KdfFloorTest` | Parameters below floor are never used, and are upgraded after unlock. |
 | `scripts/scan-secrets.sh` | 15 static checks: no key material in source, no Google or Android imports in core, no vault data in `SharedPreferences`, no analytics SDK. |
 | `scripts/check-contrast.py` | 56 token pairs meet the WCAG floors in `08-design-system.md` §2.3. |
+| `FileVaultStorageTest` | On-disk storage: atomic replacement, no surviving temp files, the cached header matches the container, a decrypted document never reaches disk in the clear, a tampered state file is rejected, and a lost device key degrades to a resync rather than blocking unlock. |
+| `VaultRepositoryTest` | The repository against real crypto, real files and a real sync engine: unlock, wrong-secret vs damaged, lock clears everything, an edit survives a lock/unlock cycle, deletes write tombstones, `markUsed` is not an edit, offline keeps the vault authoritative, and nothing readable reaches the transport. |
 
 ### 3.1 Named but **not yet written**
 
@@ -65,6 +67,7 @@ quietly includes tests nobody has written is worse than a short one.
 
 | Test | Would assert | Why it does not exist yet |
 |---|---|---|
+| `NoVaultIsEarnedTest` (Drive half) | A Drive folder holding a temp object or a backup never routes to onboarding. | The **local** half exists (`hasEvidenceOfVault`, 4 tests in `FileVaultStorageTest`). The transport-side check is not written. |
 | `PreferencesLeakTest` | Nothing vault-derived reaches `SharedPreferences`. | Needs an instrumented run. `scan-secrets.sh` covers the static half (no vault type is written to preferences in source); the runtime half is unverified. |
 | `ClipboardPolicyTest` | Clipboard auto-clear fires, and `EXTRA_IS_SENSITIVE` is set. | Needs a device. The policy is implemented but **has never been executed**. |
 | `AtomicPublishTest` | A Drive upload interrupted at any step never leaves the vault unreadable or absent. | Needs a fake Drive. The behaviour **is** implemented (`DriveTransport.upload` stages, reads back, archives, re-checks and renames) but has never been run, and the review identifies a window between the delete and the rename where no live vault exists. |

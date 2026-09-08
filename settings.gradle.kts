@@ -29,6 +29,7 @@ include(":core:model")
 include(":core:vault")
 include(":core:search")
 include(":core:sync")
+include(":core:store")
 
 // ---------------------------------------------------------------------------
 // Android modules.
